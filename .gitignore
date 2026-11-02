@@ -152,3 +152,4 @@ vite.config.ts.timestamp-*
 .env.*
 !.env.example
 .vercel/
+.env.example
