@@ -28,6 +28,10 @@ const STATUS_FIELD_ID = 'pVjzZbTLHlgbSX5IVbhc';
 // How far back each daily run looks. >24h so a late/missed run self-heals on the next pass.
 const LOOKBACK_HOURS = Number(process.env.SYNC_LOOKBACK_HOURS || 26);
 
+// Replays run concurrently so the daily window finishes well under the function time limit.
+// Each contact is a GET + a POST; serial execution (~116 round-trips for ~58 contacts) times out.
+const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 8);
+
 function ghlHeaders() {
   return {
     Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
@@ -121,6 +125,16 @@ async function replay(payload) {
   return res.json();
 }
 
+// Run `worker` over `items` with at most `concurrency` in flight. JS is single-threaded, so the
+// shared counter increments are safe; this just overlaps the network waits.
+async function runPool(items, worker, concurrency) {
+  let i = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (i < items.length) { await worker(items[i++]); }
+  });
+  await Promise.all(runners);
+}
+
 export default async function handler(req, res) {
   // Vercel Cron sends Authorization: Bearer <CRON_SECRET> when the env var is set.
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -139,7 +153,7 @@ export default async function handler(req, res) {
     const ids = await fetchChangedContactIds(locationId, sinceISO);
     result.found = ids.length;
 
-    for (const id of ids) {
+    await runPool(ids, async (id) => {
       try {
         const contact = await fetchContact(id);
         await replay(toWebhookPayload(contact, idToKey));
@@ -148,7 +162,7 @@ export default async function handler(req, res) {
         result.failed += 1;
         if (result.errors.length < 20) result.errors.push({ id, error: String(err) });
       }
-    }
+    }, CONCURRENCY);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     return res.status(500).json({ ok: false, error: String(err), ...result });

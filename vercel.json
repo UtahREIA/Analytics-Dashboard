@@ -1,5 +1,8 @@
 {
   "crons": [
     { "path": "/api/sync-contacts", "schedule": "0 8 * * *" }
-  ]
+  ],
+  "functions": {
+    "api/sync-contacts.js": { "maxDuration": 60 }
+  }
 }
