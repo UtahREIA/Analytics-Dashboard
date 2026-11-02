@@ -30,7 +30,7 @@ const LOOKBACK_HOURS = Number(process.env.SYNC_LOOKBACK_HOURS || 26);
 
 // Replays run concurrently so the daily window finishes well under the function time limit.
 // Each contact is a GET + a POST; serial execution (~116 round-trips for ~58 contacts) times out.
-const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 8);
+const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 4);
 
 function ghlHeaders() {
   return {
@@ -40,10 +40,28 @@ function ghlHeaders() {
   };
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// GHL throttles bursts with HTTP 429. Retry those (and transient 5xx) with backoff,
+// honoring a Retry-After header when GHL sends one. Everything else returns as-is for
+// the caller to handle. Keeps the concurrent pool from dropping contacts under load.
+async function fetchRetry(url, options, attempts = 5) {
+  for (let attempt = 1; ; attempt += 1) {
+    const res = await fetch(url, options);
+    if (res.status !== 429 && res.status < 500) return res;
+    if (attempt >= attempts) return res;
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(1000 * 2 ** (attempt - 1), 8000) + Math.floor(Math.random() * 250);
+    await sleep(waitMs);
+  }
+}
+
 // id -> bare custom-field key (e.g. "membership_type"). The edge function strips a leading
 // "contact." itself, so a bare key is fine.
 async function fetchFieldIdToKey(locationId) {
-  const res = await fetch(`${GHL_BASE}/locations/${locationId}/customFields`, { headers: ghlHeaders() });
+  const res = await fetchRetry(`${GHL_BASE}/locations/${locationId}/customFields`, { headers: ghlHeaders() });
   if (!res.ok) throw new Error(`customFields fetch failed: ${res.status} ${await res.text()}`);
   const body = await res.json();
   const map = {};
@@ -61,7 +79,7 @@ async function fetchChangedContactIds(locationId, sinceISO) {
   let page = 1;
   const pageLimit = 100;
   for (;;) {
-    const res = await fetch(`${GHL_BASE}/contacts/search`, {
+    const res = await fetchRetry(`${GHL_BASE}/contacts/search`, {
       method: 'POST',
       headers: ghlHeaders(),
       body: JSON.stringify({
@@ -84,7 +102,7 @@ async function fetchChangedContactIds(locationId, sinceISO) {
 }
 
 async function fetchContact(contactId) {
-  const res = await fetch(`${GHL_BASE}/contacts/${contactId}`, { headers: ghlHeaders() });
+  const res = await fetchRetry(`${GHL_BASE}/contacts/${contactId}`, { headers: ghlHeaders() });
   if (!res.ok) throw new Error(`contacts/${contactId} failed: ${res.status} ${await res.text()}`);
   return (await res.json()).contact;
 }
@@ -116,7 +134,7 @@ function toWebhookPayload(contact, idToKey) {
 }
 
 async function replay(payload) {
-  const res = await fetch(process.env.GHL_WEBHOOK_URL, {
+  const res = await fetchRetry(process.env.GHL_WEBHOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-webhook-secret': process.env.GHL_WEBHOOK_SECRET },
     body: JSON.stringify(payload),
