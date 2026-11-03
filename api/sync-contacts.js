@@ -172,6 +172,14 @@ async function runPool(items, worker, concurrency) {
   await Promise.all(runners);
 }
 
+// One compact line per run so every invocation -- scheduled or manual -- is visible in Vercel's
+// runtime logs (which only capture application output). Full error objects stay in the HTTP
+// response; the log keeps just a count so a run is greppable without dumping contact data.
+function logSummary(tag, result, extra = {}) {
+  const { errors, ...counts } = result;
+  console.log(`[sync-contacts] ${tag} ${JSON.stringify({ ...counts, errorCount: errors.length, ...extra })}`);
+}
+
 export default async function handler(req, res) {
   // Vercel Cron sends Authorization: Bearer <CRON_SECRET> when the env var is set.
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -214,6 +222,7 @@ export default async function handler(req, res) {
       result.found = ids.length;
       await runPool(ids, replayOne, CONCURRENCY);
       const nextPage = result.deferred > 0 ? page : (hasMore ? page + 1 : null);
+      logSummary('full', result, { page, nextPage });
       return res.status(200).json({ ok: true, ...result, page, morePages: nextPage !== null, nextPage });
     }
 
@@ -222,8 +231,10 @@ export default async function handler(req, res) {
     await runPool(ids, replayOne, CONCURRENCY);
     // Any deferred rows (hit the budget) stay inside the next daily run's lookback window, so
     // they self-heal without a driver.
+    logSummary('incremental', result);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
+    console.error(`[sync-contacts] error ${String(err)} ${JSON.stringify({ full, found: result.found, replayed: result.replayed, failed: result.failed })}`);
     return res.status(500).json({ ok: false, error: String(err), ...result });
   }
 }
