@@ -96,8 +96,28 @@ stored in `sessionStorage`) and forwards them as `utms` in the existing `/api/tr
 - `fixflip-first.html` is a legacy variant (uses `action: 'calculator_accessed'`, not the deployed
   `event` shape) — left untouched.
 
-Still to replicate the same snippet: `UtahREIA/Wholesale-Calculator`, `UtahREIA/Rehab-Estimator`
-(different repos; verify they POST to the same track-event seam first).
+**Wholesale** (`UtahREIA/Wholesale-Calculator`): same architecture as Fix & Flip (own
+`api/track-event.js` + a `finish_analysis` POST). Full mirror applied — branch `feat/utm-capture`
+(PR pending). Same GHL workflow-mapping step applies.
+
+**Rehab Estimator** (`UtahREIA/Rehab-Estimator`): **no repo change — no seam exists.** The page is a
+gated tool: `verify-phone.js` only checks subscription status, and the subscription (the actual
+lead) is created upstream in GHL, which posts to `subscribe.js` (a GHL→Vercel receiver). There is no
+lead-creation POST on the page to attach UTMs to. Attribution for Rehab belongs on the **GHL
+subscribe funnel** (GHL captures UTMs natively on its own forms/funnels) — a GHL-config item, not a
+code change here.
+
+**Property & notes listing** (`UtahREIA/Property-Listing`): `add-property.html` (seller posts a
+property, with name/email/phone) is the real lead seam. Frontend instrumented — branch
+`feat/utm-capture` (PR pending): captures UTMs on load and forwards `utm_*` on submit under their
+intended Airtable column names. **But** `add-property.js` silently drops any field outside its
+whitelist (guards against Airtable 422s), so nothing persists yet. To complete:
+1. Add columns `UTM Source` / `UTM Medium` / `UTM Campaign` / `UTM Content` / `UTM Term` to the
+   Airtable **Properties** table.
+2. Add those names to the whitelist in `add-property.js`.
+3. Carry them through the Airtable → Supabase pull once `lead_events` exists.
+(The buyer-side `contact-property.js` only emails the owner + marks "Contacted" — no lead store — so
+there is nothing to persist there until a contact record is written somewhere.)
 
 ### GHL — fields created, workflow mapping still manual
 
