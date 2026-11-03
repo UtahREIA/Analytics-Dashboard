@@ -1,22 +1,27 @@
 // api/sync-contacts.js
 //
-// Daily Vercel cron that REPLACES only the "Contact Changed / Contact Created" branch of the
-// GHL workflow "GHL <-> Claude AI via Supabase (Lani)". It does NOT reimplement ingestion.
-// It pulls GHL contacts changed since a cutoff and REPLAYS each one through the existing
-// Supabase edge function `ghl-webhook`, which owns the six-table fan-out (contacts,
-// investor_profiles, vendor_profiles, tool_access, event_attendance, readiness_surveys).
+// Daily Vercel cron that REPLACES the GHL workflow "GHL <-> Claude AI via Supabase (Lani)"
+// as the contact-sync path. It does NOT reimplement ingestion: it pulls GHL contacts changed
+// since a cutoff and REPLAYS each one through the existing Supabase edge function `ghl-webhook`,
+// which owns the six-table fan-out (contacts, investor_profiles, vendor_profiles, tool_access,
+// event_attendance, readiness_surveys).
 //
-// Survey/event branches stay on a slimmed GHL workflow pointed at the same edge function.
+// Every survey answer and event Registered/Attended status is stored as a custom field on the
+// contact, so a contact pull reproduces all six tables EXCEPT readiness_surveys -- that table is
+// a per-submission log (survey_id + submission_id + submitted_at) which a contact's current
+// field values can't reconstruct. Decision (David, 2026-11-02): the dashboard needs current
+// answers only, not submission timing, so the whole workflow is retired and readiness_surveys
+// simply stops gaining new rows. Existing rows are kept.
 //
-// Idempotent by design: the edge function upserts with merge-semantics (stripNulls), so a
-// lookback window that overlaps the previous run never double-counts or blanks data. That
-// means we don't need to persist last-run state — a fixed overlapping window is enough.
+// Two modes:
+//   - incremental (default): contacts changed in the last LOOKBACK_HOURS. Runs daily.
+//   - full (`?full=1&page=N`): sweep ALL contacts, one page per call, driven externally until
+//     morePages is false. Weekly reconcile / backstop, since nothing pushes contacts any more.
+//
+// Idempotent by design: the edge function upserts with merge-semantics (stripNulls), so an
+// overlapping window never double-counts or blanks data. No last-run state to persist.
 //
 // Secrets come from Vercel env vars (names in .env.example). Public repo: never hardcode them.
-//
-// STATUS: scaffold. Do not deploy until (1) Chris approves the Lani-pipeline change,
-// (2) the GHL /contacts/search filter shape + contact location(s) are verified on first run,
-// (3) it has run in parallel with the workflow and reconciled against the ~4,607 live contacts.
 
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 const GHL_API_VERSION = '2021-07-28';
@@ -25,12 +30,23 @@ const GHL_API_VERSION = '2021-07-28';
 // contacts.ghl_membership_status. Verified id on 2026-11-02.
 const STATUS_FIELD_ID = 'pVjzZbTLHlgbSX5IVbhc';
 
-// How far back each daily run looks. >24h so a late/missed run self-heals on the next pass.
-const LOOKBACK_HOURS = Number(process.env.SYNC_LOOKBACK_HOURS || 26);
+// How far back each daily run looks. >48h so one entirely missed daily run still self-heals
+// on the next pass. With the GHL workflow retired, this cron is the ONLY contact path -- there
+// is no real-time net -- so the window must absorb a skipped run.
+const LOOKBACK_HOURS = Number(process.env.SYNC_LOOKBACK_HOURS || 50);
 
 // Replays run concurrently so the daily window finishes well under the function time limit.
 // Each contact is a GET + a POST; serial execution (~116 round-trips for ~58 contacts) times out.
 const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 4);
+
+// Full-resync slice size: contacts replayed per `?full=1&page=N` call. Kept small so a single
+// page finishes under the function limit; a driver walks pages until morePages is false. The
+// weekly full sweep is the real backstop now that nothing pushes contacts in real time.
+const FULL_PAGE_SIZE = Math.min(Number(process.env.SYNC_FULL_PAGE_SIZE || 50), 100);
+
+// Wall-clock budget. Stop starting new replays a few seconds before Vercel's maxDuration (60s)
+// so the response always returns with a resume hint instead of the function being killed mid-run.
+const MAX_RUN_MS = Number(process.env.SYNC_MAX_RUN_MS || 55000);
 
 function ghlHeaders() {
   return {
@@ -71,32 +87,35 @@ async function fetchFieldIdToKey(locationId) {
   return map;
 }
 
-// Contacts whose dateUpdated is within the lookback window.
-// NOTE: verify this filter shape against the live GHL v2 /contacts/search on first run; the
-// endpoint is versioned and the date-range operator has changed historically.
+// One page of contact IDs whose dateUpdated is >= sinceISO, newest first. Filter shape
+// verified against live GHL v2 /contacts/search on 2026-11-02 (returned 348 matches).
+async function searchContactPage(locationId, sinceISO, page, pageLimit) {
+  const res = await fetchRetry(`${GHL_BASE}/contacts/search`, {
+    method: 'POST',
+    headers: ghlHeaders(),
+    body: JSON.stringify({
+      locationId,
+      page,
+      pageLimit,
+      filters: [{ field: 'dateUpdated', operator: 'range', value: { gte: sinceISO } }],
+      sort: [{ field: 'dateUpdated', direction: 'desc' }],
+    }),
+  });
+  if (!res.ok) throw new Error(`contacts/search failed: ${res.status} ${await res.text()}`);
+  const batch = (await res.json()).contacts || [];
+  const ids = [];
+  for (const c of batch) if (c.id) ids.push(c.id);
+  return { ids, hasMore: batch.length >= pageLimit };
+}
+
+// Incremental mode: walk every page in the lookback window. The window is small (a day or two
+// of changes), so collecting all IDs up front is cheap.
 async function fetchChangedContactIds(locationId, sinceISO) {
   const ids = [];
-  let page = 1;
-  const pageLimit = 100;
-  for (;;) {
-    const res = await fetchRetry(`${GHL_BASE}/contacts/search`, {
-      method: 'POST',
-      headers: ghlHeaders(),
-      body: JSON.stringify({
-        locationId,
-        page,
-        pageLimit,
-        filters: [{ field: 'dateUpdated', operator: 'range', value: { gte: sinceISO } }],
-        sort: [{ field: 'dateUpdated', direction: 'desc' }],
-      }),
-    });
-    if (!res.ok) throw new Error(`contacts/search failed: ${res.status} ${await res.text()}`);
-    const body = await res.json();
-    const batch = body.contacts || [];
-    for (const c of batch) if (c.id) ids.push(c.id);
-    if (batch.length < pageLimit) break;
-    page += 1;
-    if (page > 200) break; // safety cap
+  for (let page = 1; page <= 500; page += 1) {
+    const { ids: pageIds, hasMore } = await searchContactPage(locationId, sinceISO, page, 100);
+    ids.push(...pageIds);
+    if (!hasMore) break;
   }
   return ids;
 }
@@ -160,27 +179,49 @@ export default async function handler(req, res) {
   }
 
   const locationId = process.env.GHL_LOCATION_ID;
-  const full = req.query?.full === '1'; // weekly full resync: ignore the lookback window
+  const full = req.query?.full === '1'; // full resync: ignore the lookback, sweep all contacts
   const sinceISO = full
     ? new Date(0).toISOString()
     : new Date(Date.now() - LOOKBACK_HOURS * 3600 * 1000).toISOString();
 
-  const result = { since: sinceISO, full, found: 0, replayed: 0, failed: 0, errors: [] };
+  // Stop starting new replays once we're this close to the function limit, so the response
+  // always returns (with a resume hint) rather than the function being killed mid-run.
+  const deadline = Date.now() + MAX_RUN_MS;
+
+  const result = { since: sinceISO, full, found: 0, replayed: 0, failed: 0, deferred: 0, errors: [] };
+
+  let idToKey;
+  const replayOne = async (id) => {
+    if (Date.now() > deadline) { result.deferred += 1; return; } // ran out of budget; caller retries
+    try {
+      const contact = await fetchContact(id);
+      await replay(toWebhookPayload(contact, idToKey));
+      result.replayed += 1;
+    } catch (err) {
+      result.failed += 1;
+      if (result.errors.length < 20) result.errors.push({ id, error: String(err) });
+    }
+  };
+
   try {
-    const idToKey = await fetchFieldIdToKey(locationId);
+    idToKey = await fetchFieldIdToKey(locationId);
+
+    if (full) {
+      // One search page per call; a driver (PowerShell loop / GitHub Actions) walks pages until
+      // morePages is false. If the time budget cut the page short, re-run the SAME page.
+      const page = Math.max(1, Number(req.query?.page) || 1);
+      const { ids, hasMore } = await searchContactPage(locationId, sinceISO, page, FULL_PAGE_SIZE);
+      result.found = ids.length;
+      await runPool(ids, replayOne, CONCURRENCY);
+      const nextPage = result.deferred > 0 ? page : (hasMore ? page + 1 : null);
+      return res.status(200).json({ ok: true, ...result, page, morePages: nextPage !== null, nextPage });
+    }
+
     const ids = await fetchChangedContactIds(locationId, sinceISO);
     result.found = ids.length;
-
-    await runPool(ids, async (id) => {
-      try {
-        const contact = await fetchContact(id);
-        await replay(toWebhookPayload(contact, idToKey));
-        result.replayed += 1;
-      } catch (err) {
-        result.failed += 1;
-        if (result.errors.length < 20) result.errors.push({ id, error: String(err) });
-      }
-    }, CONCURRENCY);
+    await runPool(ids, replayOne, CONCURRENCY);
+    // Any deferred rows (hit the budget) stay inside the next daily run's lookback window, so
+    // they self-heal without a driver.
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     return res.status(500).json({ ok: false, error: String(err), ...result });
