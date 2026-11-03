@@ -14,12 +14,15 @@
 // simply stops gaining new rows. Existing rows are kept.
 //
 // Two modes:
-//   - incremental (default): contacts changed in the last LOOKBACK_HOURS. Runs daily.
+//   - incremental (default): contacts changed since a stored watermark (sync_state.cursor),
+//     oldest first. Advances the cursor only over changes it confirmed synced, so a budget cut
+//     or a missed/failed run resumes from the gap next time -- nothing ages out unsynced. Runs
+//     daily. First ever run bootstraps the window to LOOKBACK_HOURS.
 //   - full (`?full=1&page=N`): sweep ALL contacts, one page per call, driven externally until
 //     morePages is false. Weekly reconcile / backstop, since nothing pushes contacts any more.
 //
-// Idempotent by design: the edge function upserts with merge-semantics (stripNulls), so an
-// overlapping window never double-counts or blanks data. No last-run state to persist.
+// Idempotent by design: the edge function upserts with merge-semantics (stripNulls), so the
+// cursor's small re-scan overlap never double-counts or blanks data.
 //
 // Secrets come from Vercel env vars (names in .env.example). Public repo: never hardcode them.
 
@@ -47,6 +50,13 @@ const FULL_PAGE_SIZE = Math.min(Number(process.env.SYNC_FULL_PAGE_SIZE || 50), 1
 // Wall-clock budget. Stop starting new replays a few seconds before Vercel's maxDuration (60s)
 // so the response always returns with a resume hint instead of the function being killed mid-run.
 const MAX_RUN_MS = Number(process.env.SYNC_MAX_RUN_MS || 55000);
+
+// Supabase REST access for the incremental watermark (sync_state table). Service-role key: this
+// is a backend-only cron and the table is RLS-locked, so the public anon key can't move the
+// cursor. Used only by the incremental path.
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const CURSOR_KEY = 'contacts_incremental';
 
 function ghlHeaders() {
   return {
@@ -87,8 +97,8 @@ async function fetchFieldIdToKey(locationId) {
   return map;
 }
 
-// One page of contact IDs whose dateUpdated is >= sinceISO, newest first. Filter shape
-// verified against live GHL v2 /contacts/search on 2026-11-02 (returned 348 matches).
+// One page of contacts ({id, dateUpdated}) whose dateUpdated is >= sinceISO, newest first.
+// Filter shape verified against live GHL v2 /contacts/search on 2026-11-02 (returned 348).
 async function searchContactPage(locationId, sinceISO, page, pageLimit) {
   const res = await fetchRetry(`${GHL_BASE}/contacts/search`, {
     method: 'POST',
@@ -103,21 +113,23 @@ async function searchContactPage(locationId, sinceISO, page, pageLimit) {
   });
   if (!res.ok) throw new Error(`contacts/search failed: ${res.status} ${await res.text()}`);
   const batch = (await res.json()).contacts || [];
-  const ids = [];
-  for (const c of batch) if (c.id) ids.push(c.id);
-  return { ids, hasMore: batch.length >= pageLimit };
+  const contacts = [];
+  for (const c of batch) if (c.id) contacts.push({ id: c.id, dateUpdated: c.dateUpdated });
+  return { contacts, hasMore: batch.length >= pageLimit };
 }
 
-// Incremental mode: walk every page in the lookback window. The window is small (a day or two
-// of changes), so collecting all IDs up front is cheap.
-async function fetchChangedContactIds(locationId, sinceISO) {
-  const ids = [];
+// Incremental mode: walk every page since the cursor, then return oldest-first. A budget cut
+// then defers the NEWEST changes, letting the watermark advance over the confirmed-synced oldest
+// ones while the newest are retried next run.
+async function fetchChangedContacts(locationId, sinceISO) {
+  const all = [];
   for (let page = 1; page <= 500; page += 1) {
-    const { ids: pageIds, hasMore } = await searchContactPage(locationId, sinceISO, page, 100);
-    ids.push(...pageIds);
+    const { contacts, hasMore } = await searchContactPage(locationId, sinceISO, page, 100);
+    all.push(...contacts);
     if (!hasMore) break;
   }
-  return ids;
+  all.sort((a, b) => String(a.dateUpdated).localeCompare(String(b.dateUpdated)));
+  return all;
 }
 
 async function fetchContact(contactId) {
@@ -162,6 +174,33 @@ async function replay(payload) {
   return res.json();
 }
 
+// Read/advance the incremental watermark. The cursor is the dateUpdated the next run resumes
+// from. Normalized to ISO-Z on read so the value handed to GHL's filter matches the format it
+// expects (Supabase returns the timestamp with a +00:00 offset).
+async function readCursor() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/sync_state?key=eq.${CURSOR_KEY}&select=cursor`, {
+    headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
+  });
+  if (!res.ok) throw new Error(`sync_state read failed: ${res.status} ${await res.text()}`);
+  const rows = await res.json();
+  return rows[0]?.cursor ? new Date(rows[0].cursor).toISOString() : null;
+}
+
+async function writeCursor(cursorISO) {
+  // Supabase upsert needs BOTH the merge-duplicates header and ?on_conflict=<col> (CLAUDE.md).
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/sync_state?on_conflict=key`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ key: CURSOR_KEY, cursor: cursorISO, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`sync_state write failed: ${res.status} ${await res.text()}`);
+}
+
 // Run `worker` over `items` with at most `concurrency` in flight. JS is single-threaded, so the
 // shared counter increments are safe; this just overlaps the network waits.
 async function runPool(items, worker, concurrency) {
@@ -187,27 +226,34 @@ export default async function handler(req, res) {
   }
 
   const locationId = process.env.GHL_LOCATION_ID;
-  const full = req.query?.full === '1'; // full resync: ignore the lookback, sweep all contacts
-  const sinceISO = full
-    ? new Date(0).toISOString()
-    : new Date(Date.now() - LOOKBACK_HOURS * 3600 * 1000).toISOString();
+  const full = req.query?.full === '1'; // full resync: ignore the cursor, sweep all contacts
 
   // Stop starting new replays once we're this close to the function limit, so the response
   // always returns (with a resume hint) rather than the function being killed mid-run.
   const deadline = Date.now() + MAX_RUN_MS;
 
-  const result = { since: sinceISO, full, found: 0, replayed: 0, failed: 0, deferred: 0, errors: [] };
+  const result = { since: null, full, found: 0, replayed: 0, failed: 0, deferred: 0, errors: [] };
+
+  // Incremental watermark bookkeeping. Deferred items are the newest (ASC order, unstarted
+  // suffix), so advancing the cursor to the newest SYNCED change still re-includes them next
+  // run. Only a failure older than that point could be skipped, so we track failure timestamps
+  // and never advance the cursor past the earliest failure. Unused by full mode.
+  const failedTimes = [];
+  let maxSynced = null;
 
   let idToKey;
-  const replayOne = async (id) => {
-    if (Date.now() > deadline) { result.deferred += 1; return; } // ran out of budget; caller retries
+  const replayOne = async (c) => {
+    if (Date.now() > deadline) { result.deferred += 1; return; } // newest suffix; retried next run
     try {
-      const contact = await fetchContact(id);
+      const contact = await fetchContact(c.id);
       await replay(toWebhookPayload(contact, idToKey));
       result.replayed += 1;
+      const du = contact.dateUpdated ?? c.dateUpdated; // GET value is authoritative
+      if (du && (!maxSynced || du > maxSynced)) maxSynced = du;
     } catch (err) {
       result.failed += 1;
-      if (result.errors.length < 20) result.errors.push({ id, error: String(err) });
+      failedTimes.push(c.dateUpdated);
+      if (result.errors.length < 20) result.errors.push({ id: c.id, error: String(err) });
     }
   };
 
@@ -217,22 +263,41 @@ export default async function handler(req, res) {
     if (full) {
       // One search page per call; a driver (PowerShell loop / GitHub Actions) walks pages until
       // morePages is false. If the time budget cut the page short, re-run the SAME page.
+      const sinceISO = new Date(0).toISOString();
+      result.since = sinceISO;
       const page = Math.max(1, Number(req.query?.page) || 1);
-      const { ids, hasMore } = await searchContactPage(locationId, sinceISO, page, FULL_PAGE_SIZE);
-      result.found = ids.length;
-      await runPool(ids, replayOne, CONCURRENCY);
+      const { contacts, hasMore } = await searchContactPage(locationId, sinceISO, page, FULL_PAGE_SIZE);
+      result.found = contacts.length;
+      await runPool(contacts, replayOne, CONCURRENCY);
       const nextPage = result.deferred > 0 ? page : (hasMore ? page + 1 : null);
       logSummary('full', result, { page, nextPage });
       return res.status(200).json({ ok: true, ...result, page, morePages: nextPage !== null, nextPage });
     }
 
-    const ids = await fetchChangedContactIds(locationId, sinceISO);
-    result.found = ids.length;
-    await runPool(ids, replayOne, CONCURRENCY);
-    // Any deferred rows (hit the budget) stay inside the next daily run's lookback window, so
-    // they self-heal without a driver.
-    logSummary('incremental', result);
-    return res.status(200).json({ ok: true, ...result });
+    // Incremental: resume from the stored watermark; bootstrap to LOOKBACK_HOURS on the first run.
+    const cursor = await readCursor();
+    const sinceISO = cursor ?? new Date(Date.now() - LOOKBACK_HOURS * 3600 * 1000).toISOString();
+    result.since = sinceISO;
+
+    const contacts = await fetchChangedContacts(locationId, sinceISO); // oldest first
+    result.found = contacts.length;
+    await runPool(contacts, replayOne, CONCURRENCY);
+
+    // Hold at/below the earliest failure so it retries; otherwise advance to the newest synced
+    // change (deferred ones are newer, so they re-enter the window next run). If a failure's
+    // timestamp is unknown, don't advance -- better to re-scan than to skip.
+    let newCursor;
+    if (failedTimes.some((t) => !t)) {
+      newCursor = cursor;
+    } else if (failedTimes.length) {
+      newCursor = failedTimes.reduce((m, t) => (t < m ? t : m));
+    } else {
+      newCursor = maxSynced ?? cursor;
+    }
+    if (newCursor && newCursor !== cursor) await writeCursor(newCursor);
+
+    logSummary('incremental', result, { cursor, newCursor });
+    return res.status(200).json({ ok: true, ...result, cursor, newCursor });
   } catch (err) {
     console.error(`[sync-contacts] error ${String(err)} ${JSON.stringify({ full, found: result.found, replayed: result.replayed, failed: result.failed })}`);
     return res.status(500).json({ ok: false, error: String(err), ...result });
