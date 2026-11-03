@@ -1,0 +1,92 @@
+name: Contacts sync backstop
+
+# BACKSTOP ONLY. The primary schedule is the Vercel cron (vercel.json, 08:00 UTC daily).
+# This workflow is a safety net in case Vercel misses a run, plus a weekly full reconcile.
+#
+# Public-repo caveats (see CLAUDE.md): GitHub Actions scheduled runs can start late and are
+# auto-disabled after 60 days with no repo activity. That is fine for a backstop -- the Vercel
+# cron is what we rely on -- but do not promote this to the primary scheduler.
+#
+# Setup (one time):
+#   - Repo Secret  CRON_SECRET : same value as the Vercel CRON_SECRET env var.
+#   - Repo Variable SYNC_URL   : the deployed endpoint, e.g.
+#       https://analytics-dashboard-beta-three.vercel.app/api/sync-contacts
+#     (optional; falls back to that URL below if unset)
+#   - Settings > Actions must be enabled for the repo.
+# The endpoint is protected by CRON_SECRET, so the URL itself is not sensitive.
+
+on:
+  schedule:
+    - cron: '0 14 * * *'    # daily incremental backstop, 6h after the Vercel 08:00 UTC run
+    - cron: '30 15 * * 0'   # weekly full reconcile, Sundays 15:30 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run mode
+        type: choice
+        options: [incremental, full]
+        default: incremental
+
+# Never let two syncs overlap (a long full reconcile vs. the daily backstop).
+concurrency:
+  group: contacts-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick mode
+        id: pick
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            mode="${{ inputs.mode }}"
+          elif [ "${{ github.event.schedule }}" = "30 15 * * 0" ]; then
+            mode="full"
+          else
+            mode="incremental"
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Running in '$mode' mode"
+
+      - name: Resolve endpoint
+        id: url
+        run: |
+          set -euo pipefail
+          url="${{ vars.SYNC_URL }}"
+          url="${url:-https://analytics-dashboard-beta-three.vercel.app/api/sync-contacts}"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Incremental backstop
+        if: steps.pick.outputs.mode == 'incremental'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SYNC_URL: ${{ steps.url.outputs.url }}
+        run: |
+          set -euo pipefail
+          resp=$(curl -fsS -H "Authorization: Bearer $CRON_SECRET" "$SYNC_URL")
+          echo "$resp" | jq '{ok, since, found, replayed, failed, deferred}'
+          # Fail the run if the endpoint reported an error or any contact failed to replay.
+          echo "$resp" | jq -e '.ok == true and .failed == 0' > /dev/null
+
+      - name: Full reconcile (walk pages)
+        if: steps.pick.outputs.mode == 'full'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SYNC_URL: ${{ steps.url.outputs.url }}
+        run: |
+          set -euo pipefail
+          page=1; replayed=0; failed=0; guard=0
+          while :; do
+            guard=$((guard + 1))
+            if [ "$guard" -gt 500 ]; then echo "page guard tripped"; exit 1; fi
+            resp=$(curl -fsS -H "Authorization: Bearer $CRON_SECRET" "$SYNC_URL?full=1&page=$page")
+            echo "$resp" | jq -c '{page, found, replayed, failed, deferred, nextPage, morePages}'
+            replayed=$((replayed + $(echo "$resp" | jq '.replayed')))
+            failed=$((failed + $(echo "$resp" | jq '.failed')))
+            [ "$(echo "$resp" | jq -r '.morePages')" = "true" ] || break
+            page=$(echo "$resp" | jq -r '.nextPage')
+          done
+          echo "TOTAL replayed=$replayed failed=$failed"
+          [ "$failed" -eq 0 ]
