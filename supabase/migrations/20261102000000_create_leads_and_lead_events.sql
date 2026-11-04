@@ -1,13 +1,32 @@
 -- Migration: create leads and lead_events
--- Phase 2, task 1. Draft for review — not yet applied.
+-- Phase 2, task 1. APPLIED to prod 2026-11-04 (smoke-tested in a rolled-back txn
+-- first; all 9 checks passed). RLS/security hardening is in 20261104010000.
 --
--- Context verified against live Supabase (project kttzxjddtkgsitzehiid) on 2026-11-02:
---   - contacts exists: 4607 rows, ghl_contact_id NOT NULL + UNIQUE, raw `phone` (not last10),
---     and it already owns membership_status / membership_date / membership_expiration_date.
---   - voice_agent_calls exists: 43 rows, FK-style contact_id -> contacts(id), vapi_call_id UNIQUE.
+-- Context re-verified against live Supabase (project kttzxjddtkgsitzehiid) on 2026-11-04:
+--   - contacts exists: 4594 rows. ghl_contact_id NOT NULL + UNIQUE (the identity key).
+--     Raw `phone` (not last10); 3686 have a phone, 4069 an email, 87 have NEITHER.
+--     contacts already owns membership (membership_status, ghl_membership_status,
+--     membership_date, membership_expiration_date, membership_fee).
+--   - The contact_id -> contacts(id) link is the ESTABLISHED pattern: voice_agent_calls,
+--     readiness_surveys, and tool_access all reference contacts(id) that way (each also
+--     keeps ghl_contact_id for matching). leads/lead_events follow the same convention.
 --   - leads and lead_events do NOT exist yet.
+--   - phone_last10 is NEAR-unique, not unique: exactly 2 last-10 groups in contacts map to
+--     >1 contact today (likely duplicate GHL contacts). See [R2] for how the unique index
+--     treats them. 87 contacts have no phone and no email — unmatchable until one is added.
+--
+-- DESIGN DECISION (design point #3): leads EXTENDS contacts, it does not replace it, and we
+--   did NOT fold attribution into contacts. Reasons, both confirmed against live data:
+--     (a) contacts.ghl_contact_id is NOT NULL, so a lead that arrives before the nightly GHL
+--         sync (calculator / Vapi / listing webhook) could not be stored in contacts at all;
+--         leads.contact_id is nullable and a backstop links it later via the match keys.
+--     (b) contacts is overwritten by the GHL sync; first-touch columns there would be at risk
+--         of being nulled each run. Keeping attribution in leads avoids that.
+--   Identity + membership are read from contacts; days-to-member = contacts.membership_date
+--   minus leads.first_touch_at (member rule = ghl_membership_status = 'Active').
 --
 -- The 5 "Review before applying" points are addressed inline; see notes marked [R1]..[R5].
+-- STATUS: APPLIED to prod 2026-11-04. Flag resolutions are at the bottom.
 
 begin;
 
@@ -47,6 +66,11 @@ create table public.leads (
 
 -- [R2] Match-key uniqueness that tolerates nulls, so phone-less / ghl-less
 --      leads never collide on NULL. Partial unique indexes are the fix.
+--      The UNIQUE here enforces the writer's contract: match-by-last10 to an
+--      existing lead and attach, NEVER blind-insert a duplicate. The 2 last-10
+--      groups that map to >1 contact today therefore collapse to ONE lead each
+--      (correct if they are duplicate GHL contacts; see bottom flag if they are
+--      genuinely different people sharing a line).
 create unique index leads_phone_last10_uidx
   on public.leads (phone_last10) where phone_last10 is not null;
 
@@ -114,3 +138,21 @@ from public.lead_events e
 order by e.lead_id, e.occurred_at desc;
 
 commit;
+
+-- =====================================================================
+-- FLAG RESOLUTIONS (status as of 2026-11-04)
+-- =====================================================================
+-- F1. DONE. resolve_lead() + record_lead_event() shipped in 20261104000000 and
+--     smoke-tested; every writer calls record_lead_event() and dedupes identically.
+-- F2. ACCEPTED (David). The 2 shared-last-10 pairs merge into one lead; treated as
+--     duplicate GHL contacts. Revisit only if a pair turns out to be two people.
+-- F3. ACCEPTED (David). The 87 phone-less + email-less contacts' events land with
+--     null contact_id until an identifier appears; acceptable for now.
+-- F4. OPEN (feed work). Existing contact_id-bearing tables (voice_agent_calls, readiness_surveys,
+--     tool_access) are NOT rewritten. Their event writers will emit into
+--     lead_events; strategy/caller_type can be sourced from voice_agent_calls
+--     (profile_type, strategies[]) and survey_type, rather than re-entered.
+-- F5. entry_point vocabulary (form|survey|voice|tool|listing|event) maps to the
+--     live sources: readiness_surveys -> survey, tool_access -> tool,
+--     voice_agent_calls -> voice, add-property -> listing, GHL forms -> form,
+--     event surveys/rosters -> event. Confirm no 7th category is needed.
