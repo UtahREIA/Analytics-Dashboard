@@ -1,8 +1,10 @@
 {
   "crons": [
-    { "path": "/api/sync-contacts", "schedule": "0 8 * * *" }
+    { "path": "/api/sync-contacts", "schedule": "0 8 * * *" },
+    { "path": "/api/sync-form-submissions", "schedule": "0 9 * * *" }
   ],
   "functions": {
-    "api/sync-contacts.js": { "maxDuration": 60 }
+    "api/sync-contacts.js": { "maxDuration": 60 },
+    "api/sync-form-submissions.js": { "maxDuration": 60 }
   }
 }
