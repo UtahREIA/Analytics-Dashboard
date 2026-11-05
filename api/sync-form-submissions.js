@@ -181,11 +181,11 @@ export default async function handler(req, res) {
       }, CONCURRENCY);
     }
 
-    // Surveys + event rosters: GHL has no survey-submissions API, so sync them
-    // from the readiness_surveys table via one idempotent, cost-free server-side
-    // call (event_roster* -> event_registered, others -> survey_submitted).
+    // Internal feeds whose data already lives in Supabase (surveys, event rosters,
+    // event attendance, calculators, Lani calls). GHL has no API for most of these,
+    // so one idempotent, cost-free server-side call fans them all into lead_events.
     try {
-      const sr = await fetchRetry(`${SUPABASE_URL}/rest/v1/rpc/sync_survey_events`, {
+      const sr = await fetchRetry(`${SUPABASE_URL}/rest/v1/rpc/sync_internal_feeds`, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -194,13 +194,13 @@ export default async function handler(req, res) {
         },
         body: '{}',
       });
-      result.surveyEvents = sr.ok ? await sr.json() : null;
-      if (!sr.ok) result.surveyEventsError = sr.status;
+      result.internalFeeds = sr.ok ? await sr.json() : null;
+      if (!sr.ok) result.internalFeedsError = sr.status;
     } catch (err) {
-      result.surveyEventsError = String(err);
+      result.internalFeedsError = String(err);
     }
 
-    console.log(`[sync-form-submissions] ${JSON.stringify({ full, forms: result.forms, found: result.found, written: result.written, skippedTest: result.skippedTest, failed: result.failed, deferred: result.deferred, surveyEvents: result.surveyEvents })}`);
+    console.log(`[sync-form-submissions] ${JSON.stringify({ full, forms: result.forms, found: result.found, written: result.written, skippedTest: result.skippedTest, failed: result.failed, deferred: result.deferred, internalFeeds: result.internalFeeds })}`);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     console.error(`[sync-form-submissions] error ${String(err)}`);
