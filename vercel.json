@@ -1,10 +1,12 @@
 {
   "crons": [
     { "path": "/api/sync-contacts", "schedule": "0 8 * * *" },
-    { "path": "/api/sync-form-submissions", "schedule": "0 9 * * *" }
+    { "path": "/api/sync-form-submissions", "schedule": "0 9 * * *" },
+    { "path": "/api/sync-ga4", "schedule": "0 10 * * *" }
   ],
   "functions": {
     "api/sync-contacts.js": { "maxDuration": 60 },
-    "api/sync-form-submissions.js": { "maxDuration": 60 }
+    "api/sync-form-submissions.js": { "maxDuration": 60 },
+    "api/sync-ga4.js": { "maxDuration": 60 }
   }
 }
