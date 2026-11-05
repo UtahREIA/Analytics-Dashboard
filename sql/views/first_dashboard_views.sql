@@ -115,3 +115,15 @@ select tool,
 from u
 group by tool
 order by uses desc;
+
+-- 7) Historical lead-VOLUME trend from contacts.created_at. Volume proxy only:
+--    no channel attribution, and pre-sync contacts pile into the initial load
+--    (~Apr 2026). Use v_leads_per_week_by_channel for attributed, forward-looking
+--    detail; use this for long-run volume depth.
+create or replace view public.v_leads_volume_per_week with (security_invoker = true) as
+select date_trunc('week', created_at)::date as week,
+       count(*) as new_contacts
+from public.contacts
+where lower(coalesce(full_name, '')) <> 'testing'
+group by 1
+order by 1 desc;

@@ -181,7 +181,26 @@ export default async function handler(req, res) {
       }, CONCURRENCY);
     }
 
-    console.log(`[sync-form-submissions] ${JSON.stringify({ full, forms: result.forms, found: result.found, written: result.written, skippedTest: result.skippedTest, failed: result.failed, deferred: result.deferred })}`);
+    // Surveys + event rosters: GHL has no survey-submissions API, so sync them
+    // from the readiness_surveys table via one idempotent, cost-free server-side
+    // call (event_roster* -> event_registered, others -> survey_submitted).
+    try {
+      const sr = await fetchRetry(`${SUPABASE_URL}/rest/v1/rpc/sync_survey_events`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      });
+      result.surveyEvents = sr.ok ? await sr.json() : null;
+      if (!sr.ok) result.surveyEventsError = sr.status;
+    } catch (err) {
+      result.surveyEventsError = String(err);
+    }
+
+    console.log(`[sync-form-submissions] ${JSON.stringify({ full, forms: result.forms, found: result.found, written: result.written, skippedTest: result.skippedTest, failed: result.failed, deferred: result.deferred, surveyEvents: result.surveyEvents })}`);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     console.error(`[sync-form-submissions] error ${String(err)}`);
