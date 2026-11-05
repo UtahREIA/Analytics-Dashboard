@@ -23,6 +23,12 @@ const LOCATION_ID = process.env.GHL_LOCATION_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+// Listings live only in Airtable (not mirrored in Supabase), so this one feed is
+// an Airtable pull. Skipped gracefully if AIRTABLE_API_KEY is unset.
+const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
+const LISTINGS_BASE_ID = process.env.LISTINGS_BASE_ID || 'appvnc6bZuI2D2DSR';
+const LISTINGS_TABLE = process.env.LISTINGS_TABLE || 'Properties';
+
 // Rolling re-scan window (days). >1 run of slack so a skipped day self-heals.
 const LOOKBACK_DAYS = Number(process.env.FORMS_LOOKBACK_DAYS || 14);
 // Submissions written concurrently to overlap network waits.
@@ -112,6 +118,42 @@ function toEventParams(s, formName) {
   };
 }
 
+// Airtable Properties -> listing_posted. Paginates via offset.
+async function fetchListings() {
+  const out = [];
+  let offset = '';
+  for (let i = 0; i < 50; i += 1) {
+    const url = `https://api.airtable.com/v0/${LISTINGS_BASE_ID}/${encodeURIComponent(LISTINGS_TABLE)}?pageSize=100${offset ? `&offset=${encodeURIComponent(offset)}` : ''}`;
+    const res = await fetchRetry(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
+    if (!res.ok) throw new Error(`airtable listings failed: ${res.status} ${await res.text()}`);
+    const body = await res.json();
+    out.push(...(body.records || []));
+    if (!body.offset) break;
+    offset = body.offset;
+  }
+  return out;
+}
+
+function toListingParams(rec) {
+  const f = rec.fields || {};
+  return {
+    p_event_type: 'listing_posted',
+    p_source_system: 'airtable',
+    p_source_record_id: rec.id,
+    p_occurred_at: rec.createdTime || new Date().toISOString(),
+    p_phone: f["Contact's Phone Number"] || null,
+    p_email: f["Contact's Email"] || null,
+    p_channel: 'listing',
+    p_entry_point: 'listing',
+    p_utm_source: f['UTM Source'] || null,
+    p_utm_medium: f['UTM Medium'] || null,
+    p_utm_campaign: f['UTM Campaign'] || null,
+    p_utm_content: f['UTM Content'] || null,
+    p_utm_term: f['UTM Term'] || null,
+    p_metadata: { title: f['Title'] || null, contact_name: f["Contact's Name"] || null },
+  };
+}
+
 async function recordEvent(params) {
   const res = await fetchRetry(`${SUPABASE_URL}/rest/v1/rpc/record_lead_event`, {
     method: 'POST',
@@ -145,7 +187,7 @@ export default async function handler(req, res) {
   const full = req.query?.full === '1';
   const windowStart = full ? 0 : Date.now() - LOOKBACK_DAYS * 86400 * 1000;
   const deadline = Date.now() + MAX_RUN_MS;
-  const result = { full, forms: 0, found: 0, written: 0, skippedTest: 0, failed: 0, deferred: 0, errors: [] };
+  const result = { full, forms: 0, found: 0, written: 0, skippedTest: 0, failed: 0, deferred: 0, listingsFound: 0, listingsWritten: 0, errors: [] };
 
   try {
     const forms = await fetchForms(LOCATION_ID);
@@ -181,11 +223,11 @@ export default async function handler(req, res) {
       }, CONCURRENCY);
     }
 
-    // Surveys + event rosters: GHL has no survey-submissions API, so sync them
-    // from the readiness_surveys table via one idempotent, cost-free server-side
-    // call (event_roster* -> event_registered, others -> survey_submitted).
+    // Internal feeds whose data already lives in Supabase (surveys, event rosters,
+    // event attendance, calculators, Lani calls). GHL has no API for most of these,
+    // so one idempotent, cost-free server-side call fans them all into lead_events.
     try {
-      const sr = await fetchRetry(`${SUPABASE_URL}/rest/v1/rpc/sync_survey_events`, {
+      const sr = await fetchRetry(`${SUPABASE_URL}/rest/v1/rpc/sync_internal_feeds`, {
         method: 'POST',
         headers: {
           apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -194,13 +236,30 @@ export default async function handler(req, res) {
         },
         body: '{}',
       });
-      result.surveyEvents = sr.ok ? await sr.json() : null;
-      if (!sr.ok) result.surveyEventsError = sr.status;
+      result.internalFeeds = sr.ok ? await sr.json() : null;
+      if (!sr.ok) result.internalFeedsError = sr.status;
     } catch (err) {
-      result.surveyEventsError = String(err);
+      result.internalFeedsError = String(err);
     }
 
-    console.log(`[sync-form-submissions] ${JSON.stringify({ full, forms: result.forms, found: result.found, written: result.written, skippedTest: result.skippedTest, failed: result.failed, deferred: result.deferred, surveyEvents: result.surveyEvents })}`);
+    // Listings: Airtable Properties -> listing_posted (the one feed not mirrored
+    // in Supabase). Skipped if AIRTABLE_API_KEY is unset.
+    if (AIRTABLE_API_KEY) {
+      try {
+        const listings = await fetchListings();
+        result.listingsFound = listings.length;
+        await runPool(listings, async (rec) => {
+          const nm = String((rec.fields || {})["Contact's Name"] || '').trim().toLowerCase();
+          if (nm === 'test' || nm === 'testing' || nm.startsWith('test ')) { result.skippedTest += 1; return; }
+          try { await recordEvent(toListingParams(rec)); result.listingsWritten += 1; }
+          catch (err) { result.failed += 1; if (result.errors.length < 20) result.errors.push({ listing: rec.id, error: String(err) }); }
+        }, CONCURRENCY);
+      } catch (err) {
+        result.listingsError = String(err);
+      }
+    }
+
+    console.log(`[sync-form-submissions] ${JSON.stringify({ full, forms: result.forms, found: result.found, written: result.written, skippedTest: result.skippedTest, failed: result.failed, deferred: result.deferred, internalFeeds: result.internalFeeds, listingsWritten: result.listingsWritten })}`);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     console.error(`[sync-form-submissions] error ${String(err)}`);
