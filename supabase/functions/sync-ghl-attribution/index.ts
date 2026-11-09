@@ -9,6 +9,9 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // needs contacts.readonly on that token).
 //
 // ?probe=1 -> fetch first page only, return a sample + sessionSource tally (no writes).
+//
+// 2026-11-09: also pulls utm_campaign (GHL `campaign`), utm_content, utm_term and
+// the paid-ad signals (adId, adName, gclid) into the widened attribution table.
 
 const GHL_KEY = Deno.env.get('GHL_API_KEY_CALL_LOGS') ?? '';
 const LOCATION_ID = 'DNirEjy0ejVwbHsaBYrn';
@@ -56,6 +59,14 @@ function mapRow(c: any) {
     medium: a.medium ?? null,
     utm_source: a.utmSource ?? null,
     utm_medium: a.utmMedium ?? null,
+    // GHL stores the utm_campaign value in `campaign`; fall back to utmCampaign.
+    utm_campaign: a.campaign ?? a.utmCampaign ?? null,
+    utm_content: a.utmContent ?? null,
+    utm_term: a.utmTerm ?? null,
+    // Paid-ad signals: null until campaign ads run, then populated automatically.
+    ad_id: a.adId ?? null,
+    ad_name: a.adName ?? null,
+    gclid: a.gclid ?? null,
     referrer: hostOf(a.referrer) ?? hostOf(a.url),
     last_synced_at: new Date().toISOString(),
   };
