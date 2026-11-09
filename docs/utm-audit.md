@@ -147,3 +147,62 @@ UTM contact fields (all TEXT, writable via inbound-webhook workflow):
 
 Until the mapping is published, the calculators send the UTMs but nothing writes them onto the
 contact. Fields are TEXT, so the v2-API SINGLE_OPTIONS write restriction does not apply.
+
+---
+
+## Measured impact + what actually moves the needle (2026-11-09)
+
+Measured against live `ghl_contact_attribution` (4,584 non-test contacts):
+
+| Segment | Count | Share | Fixable by capture code? |
+|---|---|---|---|
+| No web attribution at all (no source, no medium) | 3,483 | 76% | **No** — imports, Lani voice, manual adds, pre-tracking. Never had a web session. |
+| Channel captured, but **no UTM** on the inbound link | 1,078 | 24% | Only if the **link** is tagged first |
+| Any UTM present | 23 | <1% | — |
+
+**Takeaways:**
+
+1. The 76% "unknown" bucket is **structural** — those contacts never arrived through a trackable
+   web page. No front-end capture can tag them; they stay unknown by origin.
+2. For web arrivals, GHL already records the **channel** (Direct / Organic / Social / Paid / Email).
+   The missing piece is the **campaign**, and that's missing because the links weren't UTM-tagged.
+   The per-entry-point capture code above (calculators → `/api/track-event`, listing → Airtable,
+   GHL funnels natively) only *preserves* UTMs that are on the link — it cannot invent them.
+
+**So the #1 remaining lever is link-tagging discipline, not more capture code.**
+
+### Link-tagging standard — needs marketing sign-off (Kingsley / Harmonie / Chris)
+
+Every link in an email, social post, ad, or QR code should carry UTMs. Proposed taxonomy (for
+approval — a business decision, not assumed):
+
+| Param | Rule | Examples |
+|---|---|---|
+| `utm_source` | platform, lowercase | `facebook`, `instagram`, `linkedin`, `youtube`, `email`, `eventbrite`, `meetup` |
+| `utm_medium` | link type | `social`, `paid_social`, `cpc`, `email`, `bio`, `qr` |
+| `utm_campaign` | campaign, kebab-case | `brrrr-webinar-nov`, `membership-drive-q4` |
+| `utm_content` | optional A/B / placement | `story`, `feed`, `button-a` |
+
+Keep everything lowercase and consistent — `Facebook` vs `facebook` splits into two campaigns in the
+dashboard. Use one shared builder (pinned sheet or the Google UTM builder) to avoid drift.
+
+### Remaining steps to close capture (from the Fix status section above, still open)
+
+1. **Merge the pending per-tool PRs:** `feat/utm-capture-remaining` (BRRRR / Rental / Short-Term in
+   FixFlip-Calculator) and `feat/utm-capture` (Wholesale-Calculator; Property-Listing frontend).
+2. **Listing persistence:** add `UTM Source/Medium/Campaign/Content/Term` columns to the Airtable
+   Properties table, then add those names to the whitelist in `add-property.js` (order matters:
+   columns before the whitelist deploy, or Airtable 422s).
+3. **GHL manual mapping (David):** publish the Update-Contact-Field mapping on the
+   `finish_analysis` + `calculator_access` inbound-webhook workflows (see table above).
+4. **Rehab + GHL funnels:** confirm the GHL subscribe-funnel links carry UTMs (GHL captures them
+   natively there — no code seam).
+
+### Dashboard side is ready (this session)
+
+`ghl_contact_attribution` now carries `utm_campaign` / `utm_content` / `utm_term` + paid-ad ids
+(`ad_id`, `ad_name`, `gclid`); `sync-ghl-attribution` (v4) populates them nightly; views
+`v_utm_summary`, `v_paid_ads_summary`, and `v_conversion_by_source` surface campaign + conversion
+splits. So once links are tagged and the GHL mapping is published, campaign data flows straight
+through. Watch `v_utm_summary` rows with a real `utm_campaign` (not `(none)`) climb week over week;
+if they don't, the gap is untagged links, not the pipeline.
