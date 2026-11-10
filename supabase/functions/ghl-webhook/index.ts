@@ -1,5 +1,10 @@
 // supabase/functions/ghl-webhook/index.ts
-// VERSION: v21
+// VERSION: v22
+// v22 (2026-11-10): EVENT ATTENDANCE — array-valued checkboxes. GHL CHECKBOX custom
+//   fields return as arrays (e.g. ["Attended"]), but the event filter only matched a
+//   scalar string 'attended', so every event after ~May 2026 was silently dropped
+//   (event_attendance froze 2026-06-12 while people kept attending). New isAttendedValue()
+//   handles arrays + scalars. Backfill missed events with a full resync (?full=1).
 // v21 (2026-11-09): MEMBERSHIP LIFECYCLE DATES. Map two GHL contact custom fields that
 //   were never synced: Inactive Date (key inactive_date) -> membership_inactive_date and
 //   Cancelation Date (key cancelation_date) -> membership_cancelation_date. Additive and
@@ -87,6 +92,15 @@ function parseCustomFields(fields: unknown): Record<string, unknown> {
 
 const EVENT_KEY_PATTERN = /^\d{6,8}/;
 function isEventField(key: string): boolean { return EVENT_KEY_PATTERN.test(key); }
+// GHL CHECKBOX custom fields come back as ARRAYS, e.g. ["Attended"] or ["true"]
+// (CLAUDE.md gotcha). Count a value as attended if it — or any array element — is a
+// truthy/attended marker. "Registered" and other values are NOT attendance.
+function isAttendedValue(value: unknown): boolean {
+  const vals = Array.isArray(value) ? value : [value];
+  return vals.some((v) =>
+    v === true || v === 1 ||
+    (typeof v === 'string' && ['true', '1', 'attended'].includes(v.trim().toLowerCase())));
+}
 function keyToEventName(key: string): string {
   return key.replace(/^\d{6,8}_*/, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()).trim();
 }
@@ -251,9 +265,7 @@ async function processContact(payload: Record<string, unknown>): Promise<{ conta
   }
 
   const eventEntries = Object.entries(customFields).filter(
-    ([key, value]) => isEventField(key) &&
-      (value === true || value === 'true' || value === '1' || value === 1 ||
-       (typeof value === 'string' && value.toLowerCase() === 'attended'))
+    ([key, value]) => isEventField(key) && isAttendedValue(value)
   );
   console.log(`event_attendance: found ${eventEntries.length} event fields for ${ghlContactId}`);
   let eventsWritten = 0, eventsFailed = 0;
