@@ -51,3 +51,19 @@ select
 from public.v_contact_conversion
 group by source
 order by members desc, leads desc;
+
+-- Per-contact conversion rows WITH a date, so the dashboard conversions panel can
+-- filter by year/month/week/day. lead_date = contact entry date (cohort); member_date
+-- = membership_date; source from GHL attribution. Added Nov 10 2026 (migrations
+-- create_v_conversion_contacts + conversion_contacts_add_id).
+create or replace view public.v_conversion_contacts with (security_invoker = true) as
+select
+  c.created_at::date                                  as lead_date,
+  c.membership_date                                   as member_date,
+  coalesce(nullif(a.session_source, ''), '(unknown)') as source,
+  (c.ghl_membership_status is not null)               as ever_member,
+  (c.ghl_membership_status = 'Active')               as active_member,
+  c.ghl_contact_id
+from public.contacts c
+left join public.ghl_contact_attribution a on a.ghl_contact_id = c.ghl_contact_id
+where lower(coalesce(c.full_name, '')) !~~ '%test%';
