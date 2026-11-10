@@ -120,7 +120,7 @@ function renderKpis(){
     ["Lead → member", (f.lead_to_member_pct!=null?f.lead_to_member_pct:"—")+"%", "of all contacts are active",
      "Your overall conversion rate = active members ÷ all leads. Of everyone in the database, this percentage are paying members right now. (The Conversions panel below breaks this down by source and lets you filter by period.)"],
     ["Days to member", (d.median_days==null?"—":d.median_days)+" med", "avg "+(d.avg_days==null?"—":d.avg_days)+" (where known)",
-     "How long it takes a lead to become a member. “med” = the median: half of members joined faster than this number of days, half slower — so 72 means a typical member took about 72 days from first contact to joining. “avg” is the plain average (pulled up by a few slow ones). It only counts members whose first-touch date is on record, so it’s based on a smaller, known set."],
+     "How long it takes a lead to become a member. “med” = the median: half of members joined faster than this number of days, half slower — right now that's about "+(d.median_days==null?"—":d.median_days)+" days from first contact to joining. “avg” is the plain average (pulled up by a few slow ones), currently "+(d.avg_days==null?"—":d.avg_days)+". Only counts members whose first-touch date is on record, so it’s based on a smaller, known set."],
     ["Lani AI calls", fmt(l.calls), pct(l.match_rate_pct)+" matched",
      "Calls handled by Lani, the AI voice agent. “Matched %” is how often she connected the caller to a vendor, tool, or educator. Still early days — most of these are internal test calls for now, so treat the number as a baseline."],
   ];
