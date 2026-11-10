@@ -29,6 +29,7 @@ export default async function handler(req, res) {
     const [
       funnel, days, lani, laniNeeds, convSrc, convContacts, weekly, leadsWk,
       calc, campaigns, memType, emailTotals, utm, paidAds, roster,
+      sms, appts, opps, ga4, emailCampaigns,
     ] = await Promise.all([
       view('v_funnel'),
       view('v_days_to_member'),
@@ -45,6 +46,11 @@ export default async function handler(req, res) {
       view('v_utm_summary?limit=100'),
       view('v_paid_ads_summary'),
       view('v_event_roster?select=event_name,event_date,full_name,attended&order=event_date.desc.nullslast&limit=2000'),
+      view('v_sms_daily?order=date.desc'),
+      view('v_appointments_list?order=date.desc.nullslast&limit=500'),
+      view('v_opportunities_list?order=date.desc.nullslast&limit=1000'),
+      view('ga4_daily?select=date,channel,sessions,engaged_sessions,new_users&order=date.desc&limit=3000'),
+      view('v_email_campaign_stats?order=date_scheduled.desc.nullslast&limit=100'),
     ]);
 
     // conversion_contacts can exceed the PostgREST 1000-row cap; page the rest.
@@ -73,6 +79,11 @@ export default async function handler(req, res) {
       utm: utm,
       paid_ads: paidAds,
       event_roster: roster,
+      sms: sms,
+      appointments: appts,
+      opportunities: opps,
+      ga4: ga4,
+      email_campaigns: emailCampaigns,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });
