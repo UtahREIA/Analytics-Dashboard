@@ -46,6 +46,7 @@ export default async function handler(req, res) {
       funnel, days, lani, laniNeeds, convSrc, convContacts, weekly, leadsWk,
       calc, campaigns, memType, emailTotals, utm, paidAds, roster,
       sms, appts, opps, ga4, emailCampaigns, ga4Pages,
+      vendors, educators, courses, tools, coEvents,
     ] = await Promise.all([
       view('v_funnel'),
       view('v_days_to_member'),
@@ -68,6 +69,11 @@ export default async function handler(req, res) {
       view('ga4_daily?select=date,channel,sessions,engaged_sessions,new_users&order=date.desc&limit=3000'),
       view('v_email_campaign_stats?order=date_scheduled.desc.nullslast&limit=100'),
       view('ga4_page_daily?select=date,page_path,views,sessions&order=date.desc,page_path.asc&limit=1000'),
+      view('ghl_vendor_resources?select=company_name,deals_opportunities,contractor_speciality,is_active,approval_status&order=company_name'),
+      view('ghl_educators_mentors?select=educators_name,educational_topics,educational_level,is_active&order=educators_name'),
+      view('ghl_educational_courses?select=course_name,educational_topics,membership_required,paid_education,is_active&order=course_name'),
+      view('ghl_tools_resources?select=resource_title,educational_topics,resource_url,membership_required,paid_resource,is_active&order=resource_title'),
+      view('ghl_upcoming_events?select=event_title,event_date,event_time,event_location,speaker_name,event_type,is_active&order=event_date.desc.nullslast'),
     ]);
 
     // ga4_page_daily grows daily; page past the 1000-row cap (stable order on date+page_path).
@@ -117,6 +123,11 @@ export default async function handler(req, res) {
       ga4: ga4,
       email_campaigns: emailCampaigns,
       ga4_pages: ga4PagesAll,
+      vendors: vendors,
+      educators: educators,
+      courses: courses,
+      tools: tools,
+      upcoming_events: coEvents,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });

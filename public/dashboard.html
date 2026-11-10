@@ -71,6 +71,7 @@ const API = "/api/dashboard-data";
 var DATA = null;
 
 function fmt(n){ n = +n||0; return n.toLocaleString("en-US"); }
+function arr(v){ return Array.isArray(v)?v.filter(Boolean).join(", "):(v||""); }
 function pct(v){ return (v==null||v==="")?"—":(v+"%"); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function monthLabel(m){ var d=new Date(m+"-01T00:00:00"); return d.toLocaleString("en-US",{month:"short",year:"numeric",timeZone:"UTC"}); }
@@ -300,6 +301,37 @@ function renderGA4Pages(host){
     var s=el("div","scroll"); s.appendChild(table(["Page","Views","Sessions"],list,[{f:"page_path"},{f:"views",n:1,fn:function(v){return fmt(v);}},{f:"sessions",n:1,fn:function(v){return fmt(v);}}])); b.appendChild(s);
   });
 }
+function renderVendors(host){
+  var rows=(DATA.vendors||[]).filter(function(r){return !/test/i.test(r.company_name||"");}); if(!rows.length)return;
+  var active=rows.filter(function(r){return r.is_active;}).length;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Vendor partners"));
+  w.appendChild(el("div","note",fmt(active)+" active of "+fmt(rows.length)+" — from the GHL custom object ghl_vendor_resources (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Company","Specialties","Active"],rows,[{f:"company_name"},{f:"deals_opportunities",fn:function(v,r){return arr(v)||arr(r.contractor_speciality);}},{f:"is_active",fn:function(v){return v?"✓":"—";}}])); w.appendChild(s); host.appendChild(w);
+}
+function renderEducators(host){
+  var rows=(DATA.educators||[]).filter(function(r){return !/test/i.test(r.educators_name||"");}); if(!rows.length)return;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Educators & mentors"));
+  w.appendChild(el("div","note",fmt(rows.length)+" — from ghl_educators_mentors (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Name","Topics","Levels"],rows,[{f:"educators_name"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"educational_level",fn:function(v){return arr(v);}}])); w.appendChild(s); host.appendChild(w);
+}
+function renderCourses(host){
+  var rows=DATA.courses||[]; if(!rows.length)return;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Education library"));
+  w.appendChild(el("div","note",fmt(rows.length)+" courses — from ghl_educational_courses (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Course","Topics","Members only"],rows,[{f:"course_name"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"—";}}])); w.appendChild(s); host.appendChild(w);
+}
+function renderTools(host){
+  var rows=DATA.tools||[]; if(!rows.length)return;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Tools & resources"));
+  w.appendChild(el("div","note",fmt(rows.length)+" — from ghl_tools_resources (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Resource","Topics","Members only","Paid"],rows,[{f:"resource_title"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"—";}},{f:"paid_resource",fn:function(v){return v?"✓":"—";}}])); w.appendChild(s); host.appendChild(w);
+}
+function renderUpcomingEvents(host){
+  var rows=DATA.upcoming_events||[]; if(!rows.length)return;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Event lineup"));
+  w.appendChild(el("div","note",fmt(rows.length)+" event slots — from ghl_upcoming_events (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Event","Date","Time","Location"],rows,[{f:"event_title"},{f:"event_date"},{f:"event_time"},{f:"event_location"}])); w.appendChild(s); host.appendChild(w);
+}
 var PANEL_EXPLAIN = {
   "Conversions — leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large — better UTM/source capture shrinks it.",
   "Weekly scorecard": "One row per week (last 26). New-lead counts use the contact-creation date, so recent weeks are accurate but older weeks can lump onto the initial data-load date. Engaged = did something active that week; new members = joined that week. Read the trend, not any single week.",
@@ -317,7 +349,12 @@ var PANEL_EXPLAIN = {
   "Calculator usage": "How many times each calculator was unlocked, and what share of users are active members — a proxy for which tools attract people who convert.",
   "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch — mostly internal test calls — so treat it as a baseline.",
   "Membership by type": "Active + inactive members grouped by membership type (Individual, Couple, Community…). “(unspecified)” = has a status but no type set.",
-  "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) — the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse."
+  "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) — the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse.",
+  "Vendor partners": "Vendor / service-provider directory from a GHL custom object (ghl_vendor_resources), kept current by a cron. “Specialties” is what they do; “Active” flags whether they’re currently listed. This is the pool Lani and the routing matrix draw from.",
+  "Educators & mentors": "Educators and mentors catalog (ghl_educators_mentors), tagged by the topics and investor levels they cover. Cron-synced from GHL.",
+  "Education library": "On-demand course / education catalog (ghl_educational_courses) with topic tags and whether membership is required. Cron-synced from GHL.",
+  "Tools & resources": "Calculators, tools and resources catalog (ghl_tools_resources) — topics, member-only, and paid flags. Cron-synced from GHL.",
+  "Event lineup": "The configured event slots (ghl_upcoming_events) — date, time, and location. This is the event catalog; the “Event attendance” panel above is who actually showed up."
 };
 function addPanelExplainers(){
   var panels=document.getElementById("panels");
@@ -350,6 +387,11 @@ function renderAll(){
   renderEmails(p);
   renderUTMs(p);
   renderTwoCol(p);
+  renderVendors(p);
+  renderEducators(p);
+  renderCourses(p);
+  renderTools(p);
+  renderUpcomingEvents(p);
   addPanelExplainers();
 }
 
