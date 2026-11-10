@@ -56,7 +56,10 @@ order by members desc, leads desc;
 -- filter by year/month/week/day. lead_date = contact entry date (cohort); member_date
 -- = membership_date; source from GHL attribution. Added Nov 10 2026 (migrations
 -- create_v_conversion_contacts + conversion_contacts_add_id).
-create or replace view public.v_conversion_contacts with (security_invoker = true) as
+-- security_invoker = false (runs as owner) so a REST read with the anon/publishable key
+-- still sees the ghl_contact_attribution join (source). security_invoker=true collapses
+-- every source to '(unknown)' for anon because RLS hides attribution.
+create or replace view public.v_conversion_contacts with (security_invoker = false) as
 select
   c.created_at::date                                  as lead_date,
   c.membership_date                                   as member_date,

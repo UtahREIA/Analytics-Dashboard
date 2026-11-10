@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Utah REIA — Live Analytics</title>
+<style>
+  :root{
+    --bg:#0e1113; --panel:#15191c; --panel2:#1b2024; --line:#272d33;
+    --txt:#e8edf1; --mut:#8b969f; --accent:#2fae66; --accent2:#3b82f6; --bad:#e0564a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
+  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px;margin-bottom:4px}
+  h1{font-size:22px;margin:0;font-weight:650}
+  .sub{color:var(--mut);font-size:13px;margin:2px 0 18px}
+  .live{display:inline-flex;align-items:center;gap:6px;color:var(--accent);font-size:12px;font-weight:600}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 rgba(47,174,102,.6);animation:p 2s infinite}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(47,174,102,.5)}70%{box-shadow:0 0 0 7px rgba(47,174,102,0)}100%{box-shadow:0 0 0 0 rgba(47,174,102,0)}}
+  button.rf{margin-left:auto;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
+  button.rf:hover{border-color:var(--accent)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0 22px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .kpi .lab{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  .kpi .num{font-size:30px;font-weight:680;margin-top:4px;font-variant-numeric:tabular-nums}
+  .kpi .foot{color:var(--mut);font-size:12px;margin-top:4px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
+  .panel h3{margin:0 0 4px;font-size:16px}
+  .note{color:var(--mut);font-size:12.5px;margin:0 0 12px}
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .tab{background:var(--panel2);color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12.5px;cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--accent);color:#06240f;border-color:var(--accent);font-weight:600}
+  .pick{margin:6px 0 10px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px}
+  .mini{display:flex;flex-wrap:wrap;gap:18px;margin:10px 0}
+  .mini div b{display:block;font-size:22px;font-weight:680;font-variant-numeric:tabular-nums}
+  .mini div span{color:var(--mut);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em}
+  td.n,th.n{text-align:right}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .msg{color:var(--mut);padding:18px 0}
+  .err{color:var(--bad)}
+  .scroll{max-height:360px;overflow:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Utah REIA — Analytics</h1>
+    <span class="live"><span class="dot"></span>LIVE</span>
+    <button class="rf" id="refresh">↻ Refresh</button>
+  </header>
+  <div class="sub" id="status">Loading live data from Supabase…</div>
+
+  <div class="kpis" id="kpis"></div>
+  <div id="panels"></div>
+</div>
+
+<script>
+const API = "/api/dashboard-data";
+var DATA = null;
+
+function fmt(n){ n = +n||0; return n.toLocaleString("en-US"); }
+function pct(v){ return (v==null||v==="")?"—":(v+"%"); }
+function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
+function monthLabel(m){ var d=new Date(m+"-01T00:00:00"); return d.toLocaleString("en-US",{month:"short",year:"numeric",timeZone:"UTC"}); }
+function weekStart(ds){ var d=new Date(ds+"T00:00:00Z"); var dow=(d.getUTCDay()+6)%7; d.setUTCDate(d.getUTCDate()-dow); return d.toISOString().slice(0,10); }
+function weekLabel(w){ var d=new Date(w+"T00:00:00Z"); return "Wk of "+d.toLocaleString("en-US",{month:"short",day:"numeric",timeZone:"UTC"}); }
+
+/* ---- reusable period filter ---- */
+function makeFilter(host, onChange){
+  var st={gran:"all",val:null}, dates=[];
+  var GRANS=[["all","All time"],["year","Year"],["month","Month"],["week","Week"],["day","Day"]];
+  function setData(ds){ dates=ds.filter(Boolean).slice().sort().reverse(); }
+  function uniq(fn){ var s={}; dates.forEach(function(d){s[fn(d)]=1;}); return Object.keys(s).sort().reverse(); }
+  function render(){
+    host.innerHTML="";
+    var tabs=el("div","tabs");
+    GRANS.forEach(function(g){ var b=el("button","tab",g[1]); b.setAttribute("aria-selected",g[0]===st.gran);
+      b.onclick=function(){st.gran=g[0];st.val=null;render();onChange();}; tabs.appendChild(b); });
+    host.appendChild(tabs);
+    if(st.gran==="all"||!dates.length) return;
+    if(st.gran==="day"){ var inp=el("input"); inp.type="date"; inp.className="pick"; inp.min=dates[dates.length-1]; inp.max=dates[0];
+      if(!st.val)st.val=dates[0]; inp.value=st.val; inp.onchange=function(){st.val=inp.value||null;onChange();}; host.appendChild(inp); return; }
+    var opts = st.gran==="year"? uniq(function(d){return d.slice(0,4);}).map(function(y){return [y,y];})
+      : st.gran==="month"? uniq(function(d){return d.slice(0,7);}).map(function(m){return [m,monthLabel(m)];})
+      : uniq(weekStart).map(function(w){return [w,weekLabel(w)];});
+    if(!st.val&&opts.length)st.val=opts[0][0];
+    var sel=el("select","pick"); opts.forEach(function(o){ var op=el("option",null,o[1]); op.value=o[0]; if(o[0]===st.val)op.selected=true; sel.appendChild(op); });
+    sel.onchange=function(){st.val=sel.value;onChange();}; host.appendChild(sel);
+  }
+  function pred(ds){ if(st.gran==="all")return true; if(!st.val||!ds)return st.gran==="all";
+    if(st.gran==="year")return ds.slice(0,4)===st.val; if(st.gran==="month")return ds.slice(0,7)===st.val;
+    if(st.gran==="week")return weekStart(ds)===st.val; return ds===st.val; }
+  return {setData:setData,render:render,pred:pred};
+}
+
+function table(cols, rows, keys){
+  var t=el("table"); var tr=el("tr"); cols.forEach(function(c,i){ var th=el("th",keys[i].n?"n":null,c); tr.appendChild(th); }); t.appendChild(tr);
+  rows.forEach(function(r){ var row=el("tr"); keys.forEach(function(k){ var td=el("td",k.n?"n":null, k.fn?k.fn(r[k.f],r):(r[k.f]==null?"—":r[k.f])); row.appendChild(td); }); t.appendChild(row); });
+  return t;
+}
+
+function renderKpis(){
+  var f=DATA.funnel||{}, d=DATA.days||{}, l=DATA.lani||{};
+  var tiles=[
+    ["Leads (all contacts)", fmt(f.leads), "people in the database"],
+    ["Engaged", fmt(f.engaged), (f.lead_to_engaged_pct!=null?f.lead_to_engaged_pct+"% ":"")+"did something active"],
+    ["Members", fmt(f.members), fmt(f.renewal_pending)+" renewal pending"],
+    ["Lead → member", (f.lead_to_member_pct!=null?f.lead_to_member_pct:"—")+"%", "of all contacts are active"],
+    ["Days to member", (d.median_days==null?"—":d.median_days)+" med", "avg "+(d.avg_days==null?"—":d.avg_days)+" (where known)"],
+    ["Lani AI calls", fmt(l.calls), pct(l.match_rate_pct)+" matched"],
+  ];
+  var g=document.getElementById("kpis"); g.innerHTML="";
+  tiles.forEach(function(t){ var k=el("div","kpi"); k.appendChild(el("div","lab",t[0])); k.appendChild(el("div","num",t[1])); k.appendChild(el("div","foot",t[2])); g.appendChild(k); });
+}
+
+var convFilter;
+function renderConversions(host){
+  var wrap=el("div","panel");
+  wrap.appendChild(el("h3",null,"Conversions — leads to members"));
+  wrap.appendChild(el("div","note","Member = has a membership status. “Ever” ever joined; “Active” current. Pick a period to scope to leads that entered during it. Split by GHL lead source."));
+  var fh=el("div"); wrap.appendChild(fh);
+  var mini=el("div","mini"); wrap.appendChild(mini);
+  var tbl=el("div","scroll"); wrap.appendChild(tbl);
+  host.appendChild(wrap);
+  var all=DATA.conversion_contacts||[];
+  convFilter=makeFilter(fh,function(){draw();});
+  convFilter.setData(all.map(function(r){return r.date;})); convFilter.render();
+  function draw(){
+    var rows=all.filter(function(r){return convFilter.pred(r.date);});
+    var leads=rows.length,ev=0,ac=0,by={};
+    rows.forEach(function(r){ ev+=r.ever;ac+=r.active; var s=r.source||"(unknown)"; var g=by[s]||(by[s]={source:s,leads:0,members:0,active:0}); g.leads++;g.members+=r.ever;g.active+=r.active; });
+    var eP=leads?Math.round(ev/leads*1000)/10:0, aP=leads?Math.round(ac/leads*1000)/10:0;
+    mini.innerHTML=""; [[fmt(leads),"Leads"],[fmt(ev),"Ever members"],[fmt(ac),"Active members"],[eP+"%","Ever %"],[aP+"%","Active %"]].forEach(function(p){ var d=el("div"); d.appendChild(el("b",null,p[0])); d.appendChild(el("span",null,p[1])); mini.appendChild(d); });
+    var list=Object.keys(by).map(function(k){var g=by[k];g.conv=g.leads?Math.round(g.members/g.leads*1000)/10:0;return g;}).sort(function(a,b){return b.members-a.members||b.leads-a.leads;});
+    tbl.innerHTML=""; tbl.appendChild(table(["Source","Leads","Members","Active","Conv %"],list,[{f:"source"},{f:"leads",n:1,fn:function(v){return fmt(v);}},{f:"members",n:1,fn:function(v){return fmt(v);}},{f:"active",n:1,fn:function(v){return fmt(v);}},{f:"conv",n:1,fn:function(v){return v+"%";}}]));
+  }
+  draw();
+}
+
+function renderWeekly(host){
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Weekly scorecard"));
+  w.appendChild(el("div","note","New leads, new members, engaged, event attendances and Lani calls per week (last 26). New-lead dates = contact creation."));
+  var s=el("div","scroll"); s.appendChild(table(["Week","New leads","New members","Engaged","Events","Lani","Match %"],DATA.weekly||[],
+    [{f:"week"},{f:"new_leads",n:1,fn:function(v){return fmt(v);}},{f:"new_members",n:1},{f:"engaged",n:1,fn:function(v){return fmt(v);}},{f:"event_attendances",n:1},{f:"lani_calls",n:1},{f:"lani_match_pct",n:1,fn:function(v){return pct(v);}}]));
+  w.appendChild(s); host.appendChild(w);
+}
+
+function renderLeadsByWeek(host){
+  // pivot last 10 weeks x channel
+  var rows=DATA.leads_by_week||[]; var weeks=[],chSet={},map={};
+  rows.forEach(function(r){ map[r.week+"|"+r.channel]=r.new_leads; if(weeks.indexOf(r.week)<0)weeks.push(r.week); chSet[r.channel]=(chSet[r.channel]||0)+(+r.new_leads||0); });
+  weeks=weeks.sort().reverse().slice(0,10);
+  var chans=Object.keys(chSet).sort(function(a,b){return chSet[b]-chSet[a];});
+  var w=el("div","panel"); w.appendChild(el("h3",null,"New leads per week, by channel"));
+  w.appendChild(el("div","note","First-touch channel of tracked leads (from lead_events). Last 10 weeks."));
+  var cols=["Week"].concat(chans).concat(["Total"]); var keys=[{f:"week"}].concat(chans.map(function(c){return {f:c,n:1};})).concat([{f:"_t",n:1}]);
+  var data=weeks.map(function(wk){ var o={week:wk},t=0; chans.forEach(function(c){var v=+map[wk+"|"+c]||0;o[c]=v||"";t+=v;}); o._t=t; return o; });
+  var s=el("div","scroll"); s.appendChild(table(cols,data,keys)); w.appendChild(s); host.appendChild(w);
+}
+
+function renderTwoCol(host){
+  var g=el("div","grid2");
+  // calculators
+  var c=el("div","panel"); c.appendChild(el("h3",null,"Calculator usage")); c.appendChild(el("div","note","Unlocks per tool and member share among users."));
+  c.appendChild(table(["Tool","Uses","Member %"],DATA.calculators||[],[{f:"tool"},{f:"uses",n:1},{f:"member_share_pct",n:1,fn:function(v){return pct(v);}}])); g.appendChild(c);
+  // lani
+  var l=el("div","panel"); l.appendChild(el("h3",null,"Lani calls")); var la=DATA.lani||{};
+  var lm=el("div","mini"); [[fmt(la.calls),"Calls"],[pct(la.match_rate_pct),"Match rate"],[fmt(la.no_match),"No match"]].forEach(function(p){var d=el("div");d.appendChild(el("b",null,p[0]));d.appendChild(el("span",null,p[1]));lm.appendChild(d);}); l.appendChild(lm);
+  l.appendChild(el("div","note","What blocked the callers Lani couldn't match:"));
+  l.appendChild(table(["Blocker","Calls"],DATA.lani_needs||[],[{f:"blocker"},{f:"calls",n:1}])); g.appendChild(l);
+  // membership by type
+  var m=el("div","panel"); m.appendChild(el("h3",null,"Membership by type"));
+  m.appendChild(table(["Type","Members"],(DATA.membership_by_type||[]),[{f:(DATA.membership_by_type&&DATA.membership_by_type[0]&&("membership_type" in DATA.membership_by_type[0])?"membership_type":"type")},{f:(DATA.membership_by_type&&DATA.membership_by_type[0]&&("members" in DATA.membership_by_type[0])?"members":"count"),n:1,fn:function(v){return fmt(v);}}])); g.appendChild(m);
+  // top campaigns
+  var tc=el("div","panel"); tc.appendChild(el("h3",null,"Top campaigns by members"));
+  tc.appendChild(table(["Campaign","Source","Members","Leads"],DATA.campaigns||[],[{f:"campaign"},{f:"source"},{f:"members",n:1},{f:"leads",n:1}])); g.appendChild(tc);
+  host.appendChild(g);
+}
+
+var evSel=null;
+function renderEvents(host){
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Event attendance"));
+  w.appendChild(el("div","note","Who attended each event (from event_attendance). Pick an event to see attendees."));
+  var roster=DATA.event_roster||[];
+  var byEvent={}; roster.forEach(function(r){ var k=r.event_name||"(unnamed)"; (byEvent[k]||(byEvent[k]={name:k,date:r.event_date,people:0,who:[]})); byEvent[k].people++; byEvent[k].who.push(r.full_name||"—"); if(r.event_date&&(!byEvent[k].date||r.event_date>byEvent[k].date))byEvent[k].date=r.event_date; });
+  var events=Object.keys(byEvent).map(function(k){return byEvent[k];}).sort(function(a,b){return (b.date||"").localeCompare(a.date||"");});
+  var sel=el("select","pick"); sel.appendChild(el("option",null,"All events ("+events.length+") — overview"));
+  events.forEach(function(e){ var o=el("option",null,e.name+(e.date?(" — "+e.date):"")); o.value=e.name; sel.appendChild(o); });
+  if(evSel)sel.value=evSel; w.appendChild(sel);
+  var body=el("div","scroll"); w.appendChild(body);
+  function draw(){
+    body.innerHTML="";
+    if(!sel.value){ var rows=events.map(function(e){return {name:e.name,month:e.date?monthLabel(e.date.slice(0,7)):"—",people:e.people};});
+      body.appendChild(table(["Event","Month","People"],rows,[{f:"name"},{f:"month"},{f:"people",n:1}])); }
+    else { var e=byEvent[sel.value]; var rows=e.who.sort().map(function(n){return {n:n};});
+      body.appendChild(table(["Attendee ("+e.people+")"],rows,[{f:"n"}])); }
+  }
+  sel.onchange=function(){evSel=sel.value;draw();}; draw(); host.appendChild(w);
+}
+
+function renderAll(){
+  renderKpis();
+  var p=document.getElementById("panels"); p.innerHTML="";
+  renderConversions(p);
+  renderWeekly(p);
+  renderLeadsByWeek(p);
+  renderEvents(p);
+  renderTwoCol(p);
+}
+
+async function load(){
+  var st=document.getElementById("status");
+  st.textContent="Refreshing…"; st.className="sub";
+  try{
+    var r=await fetch(API,{cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    DATA=await r.json();
+    if(DATA.error) throw new Error(DATA.error);
+    renderAll();
+    var t=new Date(DATA.generated_at||Date.now());
+    st.className="sub"; st.textContent="Live from Supabase · updated "+t.toLocaleString();
+  }catch(e){
+    st.className="sub err"; st.textContent="Could not load data: "+e.message;
+  }
+}
+document.getElementById("refresh").onclick=load;
+load();
+setInterval(load, 5*60*1000); // auto-refresh every 5 min
+</script>
+</body>
+</html>

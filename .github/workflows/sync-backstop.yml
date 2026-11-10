@@ -1,0 +1,51 @@
+name: Sync backstop
+
+# BACKSTOP ONLY. The real schedules are Supabase pg_cron (GHL calls/messages/
+# appointments/opportunities/attribution/emails) and Vercel cron (contacts, form
+# submissions, GA4). This re-hits every sync endpoint once a day a few hours later so a
+# missed primary run self-heals. Per CLAUDE.md, GitHub Actions cron can run late and is
+# disabled on public repos after 60 days of no activity — keep it as a backstop, not the
+# primary. Runnable on demand via the "Run workflow" button (workflow_dispatch).
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   CRON_SECRET         - same value as the Vercel env var (gates /api/* cron routes)
+#   SUPABASE_ANON_KEY   - the project's anon/publishable key (gates the edge functions)
+# Optional repo variable:
+#   VERCEL_BASE_URL     - prod domain; defaults to the beta-three alias below.
+
+on:
+  schedule:
+    - cron: '0 16 * * *'   # 16:00 UTC daily (primary crons run 08:00-11:00-ish)
+  workflow_dispatch: {}
+
+concurrency:
+  group: sync-backstop
+  cancel-in-progress: false
+
+jobs:
+  backstop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vercel syncs (contacts, form submissions, GA4)
+        env:
+          BASE: ${{ vars.VERCEL_BASE_URL || 'https://analytics-dashboard-beta-three.vercel.app' }}
+          CRON: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          for p in sync-contacts sync-form-submissions sync-ga4; do
+            echo "== $p =="
+            curl -sS -m 120 -H "Authorization: Bearer $CRON" "$BASE/api/$p" || echo "WARN: $p failed"
+            echo
+          done
+
+      - name: Supabase edge syncs (calls, messages, appointments, opportunities, attribution, emails)
+        env:
+          SB: https://kttzxjddtkgsitzehiid.supabase.co/functions/v1
+          ANON: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -u
+          for f in sync-ghl-calls sync-ghl-messages sync-ghl-appointments sync-ghl-opportunities sync-ghl-attribution sync-ghl-emails; do
+            echo "== $f =="
+            curl -sS -m 150 -X POST -H "Authorization: Bearer $ANON" -H "Content-Type: application/json" -d '{}' "$SB/$f" || echo "WARN: $f failed"
+            echo
+          done
