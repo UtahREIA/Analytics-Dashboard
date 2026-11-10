@@ -51,6 +51,24 @@
   .msg{color:var(--mut);padding:18px 0}
   .err{color:var(--bad)}
   .scroll{max-height:360px;overflow:auto}
+  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th,td{white-space:nowrap}
+  @media(max-width:600px){
+    .wrap{padding:14px 12px 48px}
+    h1{font-size:19px}
+    .sub{font-size:12px}
+    .kpis{grid-template-columns:repeat(auto-fit,minmax(142px,1fr));gap:8px;margin:12px 0 18px}
+    .kpi{padding:12px 13px}
+    .kpi .num{font-size:25px}
+    .panel{padding:13px 13px;border-radius:12px;margin:12px 0}
+    .panel h3{font-size:15px}
+    .note{font-size:12px}
+    .mini{gap:14px}
+    .mini div b{font-size:19px}
+    table{font-size:12.5px}
+    th,td{padding:6px 8px}
+    .scroll{max-height:320px}
+  }
 </style>
 </head>
 <body>
@@ -109,7 +127,7 @@ function makeFilter(host, onChange){
 function table(cols, rows, keys){
   var t=el("table"); var tr=el("tr"); cols.forEach(function(c,i){ var th=el("th",keys[i].n?"n":null,c); tr.appendChild(th); }); t.appendChild(tr);
   rows.forEach(function(r){ var row=el("tr"); keys.forEach(function(k){ var td=el("td",k.n?"n":null, k.fn?k.fn(r[k.f],r):(r[k.f]==null?"-":r[k.f])); row.appendChild(td); }); t.appendChild(row); });
-  return t;
+  var tw=el("div","tw"); tw.appendChild(t); return tw;
 }
 
 function renderKpis(){
@@ -317,7 +335,7 @@ function renderHealth(host){
   rows.forEach(function(r){
     var c = r.status==="STALE"?"var(--bad)":(r.status==="ok"?"var(--accent)":"var(--mut)");
     var age = r.age_min==null?"not run yet":(r.age_min<60? (r.age_min+"m ago"):((Math.round(r.age_min/60*10)/10)+"h ago"));
-    var line=el("div"); line.style.cssText="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px";
+    var line=el("div"); line.style.cssText="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px";
     var dot=el("span"); dot.style.cssText="width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:"+c;
     var name=el("span",null,r.feed); name.style.fontWeight="600";
     var meta=el("span",null,r.status+" · last ran "+age); meta.style.cssText="color:var(--mut);margin-left:auto;text-align:right";
