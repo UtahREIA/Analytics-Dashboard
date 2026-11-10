@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     const [
       funnel, days, lani, laniNeeds, convSrc, convContacts, weekly, leadsWk,
       calc, campaigns, memType, emailTotals, utm, paidAds, roster,
-      sms, appts, opps, ga4, emailCampaigns,
+      sms, appts, opps, ga4, emailCampaigns, ga4Pages,
     ] = await Promise.all([
       view('v_funnel'),
       view('v_days_to_member'),
@@ -51,6 +51,7 @@ export default async function handler(req, res) {
       view('v_opportunities_list?order=date.desc.nullslast&limit=1000'),
       view('ga4_daily?select=date,channel,sessions,engaged_sessions,new_users&order=date.desc&limit=3000'),
       view('v_email_campaign_stats?order=date_scheduled.desc.nullslast&limit=100'),
+      view('v_ga4_top_pages_30d?limit=50'),
     ]);
 
     // conversion_contacts can exceed the PostgREST 1000-row cap; page the rest.
@@ -84,6 +85,7 @@ export default async function handler(req, res) {
       opportunities: opps,
       ga4: ga4,
       email_campaigns: emailCampaigns,
+      ga4_top_pages: ga4Pages,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });

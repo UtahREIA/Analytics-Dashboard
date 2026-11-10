@@ -254,12 +254,19 @@ function renderUTMs(host){
   w.appendChild(el("div","note","Leads carrying a UTM (capture is sparse upstream). From ghl_contact_attribution."));
   var s=el("div","scroll"); s.appendChild(table(["Source","Medium","Campaign","Leads"],DATA.utm||[],[{f:"utm_source"},{f:"utm_medium"},{f:"utm_campaign"},{f:"leads",n:1,fn:function(v){return fmt(v);}}])); w.appendChild(s); host.appendChild(w);
 }
+function renderGA4Pages(host){
+  var tp=DATA.ga4_top_pages||[]; if(!tp.length)return;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Top pages (last 30 days)"));
+  w.appendChild(el("div","note","Most-viewed pages from GA4 (v_ga4_top_pages_30d)."));
+  var s=el("div","scroll"); s.appendChild(table(["Page","Views","Sessions","Users"],tp,[{f:"page_path"},{f:"views",n:1,fn:function(v){return fmt(v);}},{f:"sessions",n:1,fn:function(v){return fmt(v);}},{f:"total_users",n:1,fn:function(v){return fmt(v);}}])); w.appendChild(s); host.appendChild(w);
+}
 function renderAll(){
   renderKpis();
   var p=document.getElementById("panels"); p.innerHTML="";
   renderConversions(p);
   renderWeekly(p);
   renderGA4(p);
+  renderGA4Pages(p);
   renderLeadsByWeek(p);
   renderEvents(p);
   renderMessages(p);
