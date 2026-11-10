@@ -291,7 +291,7 @@ function renderSocial(host){
   var list=rows.slice().sort(function(a,b){return (+b.followers||0)-(+a.followers||0);});
   var w=el("div","panel"); w.appendChild(el("h3",null,"Social channels"));
   w.appendChild(el("div","note","Per platform, from the social-analytics project (Metricool). Followers = latest on file; impressions/interactions/views are summed. For YouTube, “followers” = subscribers."));
-  w.appendChild(table(["Network","Followers","Impressions","Interactions","Views"],list,[{f:"network"},{f:"followers",n:1,fn:function(v){return fmt(v);}},{f:"impressions",n:1,fn:function(v){return fmt(v);}},{f:"interactions",n:1,fn:function(v){return fmt(v);}},{f:"views",n:1,fn:function(v){return fmt(v);}}]));
+  w.appendChild(table(["Network","Followers / subs","Impressions","Interactions","Views"],list,[{f:"network"},{f:"followers",n:1,fn:function(v,r){var n=fmt(v);return (r.network||"").toLowerCase()==="youtube"?(n+" subs"):n;}},{f:"impressions",n:1,fn:function(v){return fmt(v);}},{f:"interactions",n:1,fn:function(v){return fmt(v);}},{f:"views",n:1,fn:function(v){return fmt(v);}}]));
   host.appendChild(w);
 }
 function renderReels(host){
