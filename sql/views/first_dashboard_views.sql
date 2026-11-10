@@ -70,13 +70,16 @@ group by 1, 2
 order by members desc, leads desc;
 
 -- 5) Lani calls, match rate (match = any vendor/tool/educator match returned).
+-- Built on v_voice_agent_calls and excludes NAMED test fixtures via is_test
+-- (Test User, Dub Testing, Voice Testing, ...). The old lower(caller_name)='testing'
+-- exact filter matched nothing, so tests leaked into the count.
 create or replace view public.v_lani_calls with (security_invoker = true) as
 with c as (
-  select (nullif(trim(coalesce(vendor_matches, '')), '') is not null
-          or nullif(trim(coalesce(tool_matches, '')), '') is not null
-          or nullif(trim(coalesce(educator_match, '')), '') is not null) as matched
-  from public.voice_agent_calls
-  where lower(coalesce(caller_name, '')) <> 'testing'
+  select (nullif(btrim(coalesce(vendor_matches, '')), '') is not null
+          or nullif(btrim(coalesce(tool_matches, '')), '') is not null
+          or nullif(btrim(coalesce(educator_match, '')), '') is not null) as matched
+  from public.v_voice_agent_calls
+  where not is_test
 )
 select count(*)                              as calls,
        count(*) filter (where matched)       as matched,
@@ -86,13 +89,13 @@ from c;
 
 -- 5b) No-match needs — what blocked the callers Lani couldn't match (resource gaps).
 create or replace view public.v_lani_no_match_needs with (security_invoker = true) as
-select coalesce(nullif(trim(blocker), ''), '(unspecified)') as blocker,
+select coalesce(nullif(btrim(blocker), ''), '(unspecified)') as blocker,
        count(*) as calls
-from public.voice_agent_calls
-where nullif(trim(coalesce(vendor_matches, '')), '') is null
-  and nullif(trim(coalesce(tool_matches, '')), '') is null
-  and nullif(trim(coalesce(educator_match, '')), '') is null
-  and lower(coalesce(caller_name, '')) <> 'testing'
+from public.v_voice_agent_calls
+where not is_test
+  and nullif(btrim(coalesce(vendor_matches, '')), '') is null
+  and nullif(btrim(coalesce(tool_matches, '')), '') is null
+  and nullif(btrim(coalesce(educator_match, '')), '') is null
 group by 1
 order by 2 desc;
 

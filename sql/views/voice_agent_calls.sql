@@ -18,7 +18,7 @@
 -- Applied via Supabase migrations create_v_voice_agent_calls +
 -- fix_v_voice_agent_calls_is_test (2026-11-09). See memory lani-already-syncs-to-ghl.
 
-create or replace view v_voice_agent_calls as
+create or replace view v_voice_agent_calls with (security_invoker = true) as
 with norm as (
   select
     v.*,
