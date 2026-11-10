@@ -378,6 +378,33 @@ function renderUpcomingEvents(host){
   w.appendChild(el("div","note",fmt(rows.length)+" event slots - from ghl_upcoming_events (cron-synced)."));
   var s=el("div","scroll"); s.appendChild(table(["Event","Date","Time","Location"],rows,[{f:"event_title"},{f:"event_date"},{f:"event_time"},{f:"event_location"}])); w.appendChild(s); host.appendChild(w);
 }
+function renderWorkflows(host){
+  var rows=(DATA.workflows||[]).filter(function(r){return !/test/i.test(r.name||"");});
+  if(!rows.length)return;
+  var pub=rows.filter(function(r){return (r.status||"").toLowerCase()==="published";}).length;
+  var draft=rows.length-pub;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"GHL workflows"));
+  w.appendChild(el("div","note","Every automation built in GHL and whether it’s live. GHL’s API gives no run counts, so this is the inventory (what exists), not how many contacts went through each. Cron-synced daily."));
+  var mini=el("div","mini"); [mk(fmt(rows.length),"Workflows"),mk(fmt(pub),"Published"),mk(fmt(draft),"Draft")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  var search=el("input"); search.type="text"; search.placeholder="Search workflows…"; search.className="pick"; search.style.cssText="width:100%;margin:8px 0;box-sizing:border-box";
+  w.appendChild(search);
+  var body=el("div"); w.appendChild(body);
+  function draw(){
+    var q=(search.value||"").toLowerCase().trim();
+    var list=rows.filter(function(r){return !q||((r.name||"").toLowerCase().indexOf(q)>-1);})
+      .slice().sort(function(a,b){return (a.name||"").localeCompare(b.name||"");});
+    body.innerHTML="";
+    var s=el("div","scroll");
+    s.appendChild(table(["Workflow","Status","Updated"],list,[
+      {f:"name"},
+      {f:"status",fn:function(v){return (v||"").toLowerCase()==="published"?"● Published":"Draft";}},
+      {f:"updated_at_ghl",fn:function(v){return v?String(v).slice(0,10):"-";}}
+    ]));
+    body.appendChild(s);
+  }
+  search.oninput=draw; draw();
+  host.appendChild(w);
+}
 var PANEL_EXPLAIN = {
   "Data health": "Live check that each data pipeline is still running. Heartbeat = did the SYNC run recently (from pg_cron run history / each sync’s last-run time), NOT when data last changed - so a quiet feed with no new rows won’t false-alarm. Green = on schedule, red = STALE (a sync stopped - investigate), grey = not run yet. A GitHub Action re-checks this every few hours and emails us if anything goes red.",
   "Conversions - leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large - better UTM/source capture shrinks it.",
@@ -401,7 +428,8 @@ var PANEL_EXPLAIN = {
   "Educators & mentors": "Educators and mentors catalog (ghl_educators_mentors), tagged by the topics and investor levels they cover. Cron-synced from GHL.",
   "Education library": "On-demand course / education catalog (ghl_educational_courses) with topic tags and whether membership is required. Cron-synced from GHL.",
   "Tools & resources": "Calculators, tools and resources catalog (ghl_tools_resources) - topics, member-only, and paid flags. Cron-synced from GHL.",
-  "Event lineup": "The configured event slots (ghl_upcoming_events) - date, time, and location. This is the event catalog; the “Event attendance” panel above is who actually showed up."
+  "Event lineup": "The configured event slots (ghl_upcoming_events) - date, time, and location. This is the event catalog; the “Event attendance” panel above is who actually showed up.",
+  "GHL workflows": "The full inventory of automations built in GHL - the “Published” ones are live, “Draft” ones aren’t running yet. Search by name. GHL’s API doesn’t expose how many contacts enter or complete each workflow, so this shows WHAT automation exists and its status, not volume. Synced from GHL once a day."
 };
 function addPanelExplainers(){
   var panels=document.getElementById("panels");
@@ -440,6 +468,7 @@ function renderAll(){
   renderCourses(p);
   renderTools(p);
   renderUpcomingEvents(p);
+  renderWorkflows(p);
   addPanelExplainers();
 }
 
