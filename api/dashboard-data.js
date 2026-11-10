@@ -21,6 +21,22 @@ async function view(path) {
   return r.json();
 }
 
+// Social analytics live in a SEPARATE Supabase project (Metricool-fed). The project URL is
+// public; the key comes from a Vercel env var. Non-fatal: if the key isn't set (or the name
+// doesn't match), social/reels just come back empty instead of breaking the whole dashboard.
+const SOCIAL_URL = process.env.SOCIAL_SUPABASE_URL || 'https://oeraqcuithvmeyljuzbd.supabase.co';
+const SOCIAL_KEY = process.env.SOCIAL_SUPABASE_SERVICE_ROLE_KEY || process.env.SOCIAL_SUPABASE_KEY
+  || process.env.SUPABASE_SOCIAL_SERVICE_ROLE_KEY || process.env.SOCIAL_SERVICE_ROLE_KEY
+  || process.env.SOCIAL_SUPABASE_ANON_KEY || process.env.SOCIAL_SUPABASE_PUBLISHABLE_KEY || '';
+async function socialView(path) {
+  if (!SOCIAL_KEY) return [];
+  try {
+    const r = await fetch(`${SOCIAL_URL}/rest/v1/${path}`, { headers: { apikey: SOCIAL_KEY, Authorization: `Bearer ${SOCIAL_KEY}` } });
+    if (!r.ok) return [];
+    return r.json();
+  } catch { return []; }
+}
+
 export default async function handler(req, res) {
   if (!SB || !KEY) {
     return res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set' });
@@ -62,9 +78,16 @@ export default async function handler(req, res) {
       if (more.length < 1000) break;
     }
 
+    const [social, reels] = await Promise.all([
+      socialView('evolution_daily?select=date,network,followers,impressions,interactions,views,video_views,reels_views&order=date.desc&limit=4000'),
+      socialView('v_reels_summary'),
+    ]);
+
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     res.status(200).json({
       generated_at: new Date().toISOString(),
+      social: social,
+      reels: reels,
       funnel: funnel[0] || {},
       days: days[0] || {},
       lani: lani[0] || {},
