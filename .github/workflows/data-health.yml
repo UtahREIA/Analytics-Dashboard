@@ -1,0 +1,33 @@
+name: Data health check
+
+# Calls /api/health every few hours. If any data feed is STALE (a sync stopped running),
+# the endpoint returns 503, this job FAILS, and GitHub emails the repo owner / watchers —
+# that's the alert, with no extra infrastructure. Also runnable on demand ("Run workflow").
+#
+# Optional repo variable VERCEL_BASE_URL overrides the production domain below.
+# If Vercel Deployment Protection is enabled, allowlist /api/health (Settings -> Deployment
+# Protection -> Allowed paths) or this check will be blocked and fail on protection, not data.
+
+on:
+  schedule:
+    - cron: '15 */3 * * *'   # every 3 hours, at :15
+  workflow_dispatch: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check data pipeline health
+        env:
+          BASE: ${{ vars.VERCEL_BASE_URL || 'https://analytics-dashboard-beta-three.vercel.app' }}
+        run: |
+          set -u
+          echo "GET $BASE/api/health"
+          code=$(curl -sS -o health.json -w "%{http_code}" -m 60 "$BASE/api/health" || echo 000)
+          echo "HTTP $code"; echo "----"; cat health.json 2>/dev/null; echo; echo "----"
+          if [ "$code" = "200" ]; then
+            echo "✅ All data feeds are healthy."
+            exit 0
+          fi
+          echo "::error::Data pipeline health check FAILED (HTTP $code). A sync feed is stale or the endpoint is down — see health.json above for which feed."
+          exit 1

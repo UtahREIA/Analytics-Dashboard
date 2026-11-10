@@ -301,6 +301,22 @@ function renderGA4Pages(host){
     var s=el("div","scroll"); s.appendChild(table(["Page","Views","Sessions"],list,[{f:"page_path"},{f:"views",n:1,fn:function(v){return fmt(v);}},{f:"sessions",n:1,fn:function(v){return fmt(v);}}])); b.appendChild(s);
   });
 }
+function renderHealth(host){
+  var rows=DATA.health||[]; if(!rows.length)return;
+  var stale=rows.filter(function(r){return r.status==="STALE";}).length;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Data health"));
+  w.appendChild(el("div","note", stale? ("⚠ "+stale+" feed(s) STALE — a sync may have stopped; check it.") : "All data feeds are updating on schedule."));
+  rows.forEach(function(r){
+    var c = r.status==="STALE"?"var(--bad)":(r.status==="ok"?"var(--accent)":"var(--mut)");
+    var age = r.age_min==null?"not run yet":(r.age_min<60? (r.age_min+"m ago"):((Math.round(r.age_min/60*10)/10)+"h ago"));
+    var line=el("div"); line.style.cssText="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px";
+    var dot=el("span"); dot.style.cssText="width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:"+c;
+    var name=el("span",null,r.feed); name.style.fontWeight="600";
+    var meta=el("span",null,r.status+" · last ran "+age); meta.style.cssText="color:var(--mut);margin-left:auto;text-align:right";
+    line.appendChild(dot); line.appendChild(name); line.appendChild(meta); w.appendChild(line);
+  });
+  host.appendChild(w);
+}
 function renderVendors(host){
   var rows=(DATA.vendors||[]).filter(function(r){return !/test/i.test(r.company_name||"");}); if(!rows.length)return;
   var active=rows.filter(function(r){return r.is_active;}).length;
@@ -333,6 +349,7 @@ function renderUpcomingEvents(host){
   var s=el("div","scroll"); s.appendChild(table(["Event","Date","Time","Location"],rows,[{f:"event_title"},{f:"event_date"},{f:"event_time"},{f:"event_location"}])); w.appendChild(s); host.appendChild(w);
 }
 var PANEL_EXPLAIN = {
+  "Data health": "Live check that each data pipeline is still running. Heartbeat = did the SYNC run recently (from pg_cron run history / each sync’s last-run time), NOT when data last changed — so a quiet feed with no new rows won’t false-alarm. Green = on schedule, red = STALE (a sync stopped — investigate), grey = not run yet. A GitHub Action re-checks this every few hours and emails us if anything goes red.",
   "Conversions — leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large — better UTM/source capture shrinks it.",
   "Weekly scorecard": "One row per week (last 26). New-lead counts use the contact-creation date, so recent weeks are accurate but older weeks can lump onto the initial data-load date. Engaged = did something active that week; new members = joined that week. Read the trend, not any single week.",
   "Website traffic (GA4)": "Website sessions grouped by GA4’s default channel (Direct, Organic Search, Organic Social, Referral, Email, Paid…). Pulled daily; GA4 finalizes numbers 1–2 days late, so the latest day or two can still rise. Pick a period to scope the totals.",
@@ -373,6 +390,7 @@ function addPanelExplainers(){
 function renderAll(){
   renderKpis();
   var p=document.getElementById("panels"); p.innerHTML="";
+  renderHealth(p);
   renderConversions(p);
   renderWeekly(p);
   renderGA4(p);
