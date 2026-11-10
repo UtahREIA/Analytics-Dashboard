@@ -10,6 +10,7 @@
     --txt:#e8edf1; --mut:#8b969f; --accent:#2fae66; --accent2:#3b82f6; --bad:#e0564a;
   }
   *{box-sizing:border-box}
+  html,body{overflow-x:hidden;max-width:100%}
   body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
   .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
   header{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px;margin-bottom:4px}
@@ -38,7 +39,7 @@
   .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
   .tab{background:var(--panel2);color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12.5px;cursor:pointer}
   .tab[aria-selected="true"]{background:var(--accent);color:#06240f;border-color:var(--accent);font-weight:600}
-  .pick{margin:6px 0 10px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px}
+  .pick{margin:6px 0 10px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px;max-width:100%}
   .mini{display:flex;flex-wrap:wrap;gap:18px;margin:10px 0}
   .mini div b{display:block;font-size:22px;font-weight:680;font-variant-numeric:tabular-nums}
   .mini div span{color:var(--mut);font-size:12px}
@@ -51,7 +52,7 @@
   .msg{color:var(--mut);padding:18px 0}
   .err{color:var(--bad)}
   .scroll{max-height:360px;overflow:auto}
-  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
   td.n,th.n{white-space:nowrap}
   td{overflow-wrap:anywhere}
   @media(max-width:600px){
@@ -69,6 +70,7 @@
     table{font-size:12.5px}
     th,td{padding:6px 8px}
     .scroll{max-height:320px}
+    select.pick{width:100%}
   }
 </style>
 </head>
@@ -91,6 +93,7 @@ var DATA = null;
 
 function fmt(n){ n = +n||0; return n.toLocaleString("en-US"); }
 function arr(v){ return Array.isArray(v)?v.filter(Boolean).join(", "):(v||""); }
+function arrN(v,n){ n=n||2; var a=Array.isArray(v)?v.filter(Boolean):(v?[String(v)]:[]); return a.length>n?(a.slice(0,n).join(", ")+" +"+(a.length-n)):a.join(", "); }
 function pct(v){ return (v==null||v==="")?"-":(v+"%"); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function monthLabel(m){ var d=new Date(m+"-01T00:00:00"); return d.toLocaleString("en-US",{month:"short",year:"numeric",timeZone:"UTC"}); }
@@ -349,25 +352,25 @@ function renderVendors(host){
   var active=rows.filter(function(r){return r.is_active;}).length;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Vendor partners"));
   w.appendChild(el("div","note",fmt(active)+" active of "+fmt(rows.length)+" - from the GHL custom object ghl_vendor_resources (cron-synced)."));
-  var s=el("div","scroll"); s.appendChild(table(["Company","Specialties","Active"],rows,[{f:"company_name"},{f:"deals_opportunities",fn:function(v,r){return arr(v)||arr(r.contractor_speciality);}},{f:"is_active",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
+  var s=el("div","scroll"); s.appendChild(table(["Company","Specialties","Active"],rows,[{f:"company_name"},{f:"deals_opportunities",fn:function(v,r){return arrN(v,2)||arrN(r.contractor_speciality,2);}},{f:"is_active",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderEducators(host){
   var rows=(DATA.educators||[]).filter(function(r){return !/test/i.test(r.educators_name||"");}); if(!rows.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Educators & mentors"));
   w.appendChild(el("div","note",fmt(rows.length)+" - from ghl_educators_mentors (cron-synced)."));
-  var s=el("div","scroll"); s.appendChild(table(["Name","Topics","Levels"],rows,[{f:"educators_name"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"educational_level",fn:function(v){return arr(v);}}])); w.appendChild(s); host.appendChild(w);
+  var s=el("div","scroll"); s.appendChild(table(["Name","Topics","Levels"],rows,[{f:"educators_name"},{f:"educational_topics",fn:function(v){return arrN(v,2);}},{f:"educational_level",fn:function(v){return arrN(v,2);}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderCourses(host){
   var rows=DATA.courses||[]; if(!rows.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Education library"));
   w.appendChild(el("div","note",fmt(rows.length)+" courses - from ghl_educational_courses (cron-synced)."));
-  var s=el("div","scroll"); s.appendChild(table(["Course","Topics","Members only"],rows,[{f:"course_name"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
+  var s=el("div","scroll"); s.appendChild(table(["Course","Topics","Members only"],rows,[{f:"course_name"},{f:"educational_topics",fn:function(v){return arrN(v,2);}},{f:"membership_required",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderTools(host){
   var rows=DATA.tools||[]; if(!rows.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Tools & resources"));
   w.appendChild(el("div","note",fmt(rows.length)+" - from ghl_tools_resources (cron-synced)."));
-  var s=el("div","scroll"); s.appendChild(table(["Resource","Topics","Members only","Paid"],rows,[{f:"resource_title"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"-";}},{f:"paid_resource",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
+  var s=el("div","scroll"); s.appendChild(table(["Resource","Topics","Members only","Paid"],rows,[{f:"resource_title"},{f:"educational_topics",fn:function(v){return arrN(v,2);}},{f:"membership_required",fn:function(v){return v?"✓":"-";}},{f:"paid_resource",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderUpcomingEvents(host){
   var rows=DATA.upcoming_events||[]; if(!rows.length)return;
