@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Utah REIA — Live Analytics</title>
+<title>Utah REIA - Live Analytics</title>
 <style>
   :root{
     --bg:#0e1113; --panel:#15191c; --panel2:#1b2024; --line:#272d33;
@@ -56,7 +56,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Utah REIA — Analytics</h1>
+    <h1>Utah REIA - Analytics</h1>
     <span class="live"><span class="dot"></span>LIVE</span>
     <button class="rf" id="refresh">↻ Refresh</button>
   </header>
@@ -72,7 +72,7 @@ var DATA = null;
 
 function fmt(n){ n = +n||0; return n.toLocaleString("en-US"); }
 function arr(v){ return Array.isArray(v)?v.filter(Boolean).join(", "):(v||""); }
-function pct(v){ return (v==null||v==="")?"—":(v+"%"); }
+function pct(v){ return (v==null||v==="")?"-":(v+"%"); }
 function el(tag, cls, html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function monthLabel(m){ var d=new Date(m+"-01T00:00:00"); return d.toLocaleString("en-US",{month:"short",year:"numeric",timeZone:"UTC"}); }
 function weekStart(ds){ var d=new Date(ds+"T00:00:00Z"); var dow=(d.getUTCDay()+6)%7; d.setUTCDate(d.getUTCDate()-dow); return d.toISOString().slice(0,10); }
@@ -108,7 +108,7 @@ function makeFilter(host, onChange){
 
 function table(cols, rows, keys){
   var t=el("table"); var tr=el("tr"); cols.forEach(function(c,i){ var th=el("th",keys[i].n?"n":null,c); tr.appendChild(th); }); t.appendChild(tr);
-  rows.forEach(function(r){ var row=el("tr"); keys.forEach(function(k){ var td=el("td",k.n?"n":null, k.fn?k.fn(r[k.f],r):(r[k.f]==null?"—":r[k.f])); row.appendChild(td); }); t.appendChild(row); });
+  rows.forEach(function(r){ var row=el("tr"); keys.forEach(function(k){ var td=el("td",k.n?"n":null, k.fn?k.fn(r[k.f],r):(r[k.f]==null?"-":r[k.f])); row.appendChild(td); }); t.appendChild(row); });
   return t;
 }
 
@@ -116,17 +116,17 @@ function renderKpis(){
   var f=DATA.funnel||{}, d=DATA.days||{}, l=DATA.lani||{};
   var tiles=[
     ["Leads (all contacts)", fmt(f.leads), "people in the database",
-     "Every contact in the system, from any source — Lani, forms, social media, UTM links, events. This is the top of the funnel: the total pool of people we track. It only grows."],
+     "Every contact in the system, from any source - Lani, forms, social media, UTM links, events. This is the top of the funnel: the total pool of people we track. It only grows."],
     ["Engaged", fmt(f.engaged), (f.lead_to_engaged_pct!=null?f.lead_to_engaged_pct+"% ":"")+"did something active",
      "Leads who took a real action: attended an event, used a calculator/tool, talked to Lani, booked an appointment, replied to a text/email, or sit in a sales pipeline. Shows how many are more than just a name in the database. The % is engaged ÷ all leads."],
     ["Members", fmt(f.members), fmt(f.renewal_pending)+" renewal pending",
-     "Leads who became paid, active members (GHL status = “Active”). The footnote count is memberships flagged “renewal pending.” This is the bottom of the funnel — the goal."],
-    ["Lead → member", (f.lead_to_member_pct!=null?f.lead_to_member_pct:"—")+"%", "of all contacts are active",
+     "Leads who became paid, active members (GHL status = “Active”). The footnote count is memberships flagged “renewal pending.” This is the bottom of the funnel - the goal."],
+    ["Lead → member", (f.lead_to_member_pct!=null?f.lead_to_member_pct:"-")+"%", "of all contacts are active",
      "Your overall conversion rate = active members ÷ all leads. Of everyone in the database, this percentage are paying members right now. (The Conversions panel below breaks this down by source and lets you filter by period.)"],
-    ["Days to member", (d.median_days==null?"—":d.median_days)+" med", "avg "+(d.avg_days==null?"—":d.avg_days)+" (where known)",
-     "How long it takes a lead to become a member. “med” = the median: half of members joined faster than this number of days, half slower — right now that's about "+(d.median_days==null?"—":d.median_days)+" days from first contact to joining. “avg” is the plain average (pulled up by a few slow ones), currently "+(d.avg_days==null?"—":d.avg_days)+". Only counts members whose first-touch date is on record, so it’s based on a smaller, known set."],
+    ["Days to member", (d.median_days==null?"-":d.median_days)+" med", "avg "+(d.avg_days==null?"-":d.avg_days)+" (where known)",
+     "How long it takes a lead to become a member. “med” = the median: half of members joined faster than this number of days, half slower - right now that's about "+(d.median_days==null?"-":d.median_days)+" days from first contact to joining. “avg” is the plain average (pulled up by a few slow ones), currently "+(d.avg_days==null?"-":d.avg_days)+". Only counts members whose first-touch date is on record, so it’s based on a smaller, known set."],
     ["Lani AI calls", fmt(l.calls), pct(l.match_rate_pct)+" matched",
-     "Calls handled by Lani, the AI voice agent. “Matched %” is how often she connected the caller to a vendor, tool, or educator. Still early days — most of these are internal test calls for now, so treat the number as a baseline."],
+     "Calls handled by Lani, the AI voice agent. “Matched %” is how often she connected the caller to a vendor, tool, or educator. Still early days - most of these are internal test calls for now, so treat the number as a baseline."],
   ];
   var g=document.getElementById("kpis"); g.innerHTML="";
   tiles.forEach(function(t){
@@ -145,7 +145,7 @@ function renderKpis(){
 var convFilter;
 function renderConversions(host){
   var wrap=el("div","panel");
-  wrap.appendChild(el("h3",null,"Conversions — leads to members"));
+  wrap.appendChild(el("h3",null,"Conversions - leads to members"));
   wrap.appendChild(el("div","note","Member = has a membership status. “Ever” ever joined; “Active” current. Pick a period to scope to leads that entered during it. Split by GHL lead source."));
   var fh=el("div"); wrap.appendChild(fh);
   var mini=el("div","mini"); wrap.appendChild(mini);
@@ -211,15 +211,15 @@ function renderEvents(host){
   var w=el("div","panel"); w.appendChild(el("h3",null,"Event attendance"));
   w.appendChild(el("div","note","Who attended each event (from event_attendance). Pick an event to see attendees."));
   var roster=DATA.event_roster||[];
-  var byEvent={}; roster.forEach(function(r){ var k=r.event_name||"(unnamed)"; (byEvent[k]||(byEvent[k]={name:k,date:r.event_date,people:0,who:[]})); byEvent[k].people++; byEvent[k].who.push(r.full_name||"—"); if(r.event_date&&(!byEvent[k].date||r.event_date>byEvent[k].date))byEvent[k].date=r.event_date; });
+  var byEvent={}; roster.forEach(function(r){ var k=r.event_name||"(unnamed)"; (byEvent[k]||(byEvent[k]={name:k,date:r.event_date,people:0,who:[]})); byEvent[k].people++; byEvent[k].who.push(r.full_name||"-"); if(r.event_date&&(!byEvent[k].date||r.event_date>byEvent[k].date))byEvent[k].date=r.event_date; });
   var events=Object.keys(byEvent).map(function(k){return byEvent[k];}).sort(function(a,b){return (b.date||"").localeCompare(a.date||"");});
-  var sel=el("select","pick"); var o0=el("option",null,"All events ("+events.length+") — overview"); o0.value=""; sel.appendChild(o0);
-  events.forEach(function(e){ var o=el("option",null,e.name+(e.date?(" — "+e.date):"")); o.value=e.name; sel.appendChild(o); });
+  var sel=el("select","pick"); var o0=el("option",null,"All events ("+events.length+") - overview"); o0.value=""; sel.appendChild(o0);
+  events.forEach(function(e){ var o=el("option",null,e.name+(e.date?(" - "+e.date):"")); o.value=e.name; sel.appendChild(o); });
   if(evSel)sel.value=evSel; w.appendChild(sel);
   var body=el("div","scroll"); w.appendChild(body);
   function draw(){
     body.innerHTML="";
-    if(!sel.value){ var rows=events.map(function(e){return {name:e.name,month:e.date?monthLabel(e.date.slice(0,7)):"—",people:e.people};});
+    if(!sel.value){ var rows=events.map(function(e){return {name:e.name,month:e.date?monthLabel(e.date.slice(0,7)):"-",people:e.people};});
       body.appendChild(table(["Event","Month","People"],rows,[{f:"name"},{f:"month"},{f:"people",n:1}])); }
     else { var e=byEvent[sel.value]; var rows=e.who.sort().map(function(n){return {n:n};});
       body.appendChild(table(["Attendee ("+e.people+")"],rows,[{f:"n"}])); }
@@ -240,7 +240,7 @@ function renderGA4(host){
   periodPanel(host,"Website traffic (GA4)","Sessions by channel from ga4_daily. Pick a period.",(DATA.ga4||[]),"date",function(b,rows){
     var tot=0,eng=0,nu=0,by={};
     rows.forEach(function(r){ tot+=+r.sessions||0; eng+=+r.engaged_sessions||0; nu+=+r.new_users||0; var c=r.channel||"(other)"; by[c]=(by[c]||0)+(+r.sessions||0); });
-    var mini=el("div","mini"); [mk(fmt(tot),"Sessions"),mk(fmt(eng),"Engaged"),mk(tot?(Math.round(eng/tot*1000)/10+"%"):"—","Engaged rate"),mk(fmt(nu),"New users")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
+    var mini=el("div","mini"); [mk(fmt(tot),"Sessions"),mk(fmt(eng),"Engaged"),mk(tot?(Math.round(eng/tot*1000)/10+"%"):"-","Engaged rate"),mk(fmt(nu),"New users")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
     var list=Object.keys(by).map(function(k){return {channel:k,sessions:by[k]};}).sort(function(a,b){return b.sessions-a.sessions;});
     var s=el("div","scroll"); s.appendChild(table(["Channel","Sessions"],list,[{f:"channel"},{f:"sessions",n:1,fn:function(v){return fmt(v);}}])); b.appendChild(s);
   });
@@ -273,7 +273,7 @@ function renderEmails(host){
     sent:+c.sent||0, delivered:+c.delivered||0, failed:+c.failed||0, delivered_pct:c.delivered_pct
   };}).filter(function(r){return r.date;});
   if(!rows.length)return;
-  periodPanel(host,"Emails (GHL campaigns)","Sent / delivered / failed per completed campaign (opens & clicks aren’t in GHL’s API). Pick a period — scopes by the campaign’s send date.",rows,"date",function(b,sub){
+  periodPanel(host,"Emails (GHL campaigns)","Sent / delivered / failed per completed campaign (opens & clicks aren’t in GHL’s API). Pick a period - scopes by the campaign’s send date.",rows,"date",function(b,sub){
     var sent=0,del=0,fail=0; sub.forEach(function(r){ sent+=r.sent; del+=r.delivered; fail+=r.failed; });
     var dp=sent?Math.round(del/sent*1000)/10:0;
     var mini=el("div","mini"); [mk(fmt(sub.length),"Campaigns"),mk(fmt(sent),"Sent"),mk(fmt(del),"Delivered"),mk(dp+"%","Delivered %"),mk(fmt(fail),"Failed")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
@@ -313,7 +313,7 @@ function renderHealth(host){
   var rows=DATA.health||[]; if(!rows.length)return;
   var stale=rows.filter(function(r){return r.status==="STALE";}).length;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Data health"));
-  w.appendChild(el("div","note", stale? ("⚠ "+stale+" feed(s) STALE — a sync may have stopped; check it.") : "All data feeds are updating on schedule."));
+  w.appendChild(el("div","note", stale? ("⚠ "+stale+" feed(s) STALE - a sync may have stopped; check it.") : "All data feeds are updating on schedule."));
   rows.forEach(function(r){
     var c = r.status==="STALE"?"var(--bad)":(r.status==="ok"?"var(--accent)":"var(--mut)");
     var age = r.age_min==null?"not run yet":(r.age_min<60? (r.age_min+"m ago"):((Math.round(r.age_min/60*10)/10)+"h ago"));
@@ -329,57 +329,57 @@ function renderVendors(host){
   var rows=(DATA.vendors||[]).filter(function(r){return !/test/i.test(r.company_name||"");}); if(!rows.length)return;
   var active=rows.filter(function(r){return r.is_active;}).length;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Vendor partners"));
-  w.appendChild(el("div","note",fmt(active)+" active of "+fmt(rows.length)+" — from the GHL custom object ghl_vendor_resources (cron-synced)."));
-  var s=el("div","scroll"); s.appendChild(table(["Company","Specialties","Active"],rows,[{f:"company_name"},{f:"deals_opportunities",fn:function(v,r){return arr(v)||arr(r.contractor_speciality);}},{f:"is_active",fn:function(v){return v?"✓":"—";}}])); w.appendChild(s); host.appendChild(w);
+  w.appendChild(el("div","note",fmt(active)+" active of "+fmt(rows.length)+" - from the GHL custom object ghl_vendor_resources (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Company","Specialties","Active"],rows,[{f:"company_name"},{f:"deals_opportunities",fn:function(v,r){return arr(v)||arr(r.contractor_speciality);}},{f:"is_active",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderEducators(host){
   var rows=(DATA.educators||[]).filter(function(r){return !/test/i.test(r.educators_name||"");}); if(!rows.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Educators & mentors"));
-  w.appendChild(el("div","note",fmt(rows.length)+" — from ghl_educators_mentors (cron-synced)."));
+  w.appendChild(el("div","note",fmt(rows.length)+" - from ghl_educators_mentors (cron-synced)."));
   var s=el("div","scroll"); s.appendChild(table(["Name","Topics","Levels"],rows,[{f:"educators_name"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"educational_level",fn:function(v){return arr(v);}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderCourses(host){
   var rows=DATA.courses||[]; if(!rows.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Education library"));
-  w.appendChild(el("div","note",fmt(rows.length)+" courses — from ghl_educational_courses (cron-synced)."));
-  var s=el("div","scroll"); s.appendChild(table(["Course","Topics","Members only"],rows,[{f:"course_name"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"—";}}])); w.appendChild(s); host.appendChild(w);
+  w.appendChild(el("div","note",fmt(rows.length)+" courses - from ghl_educational_courses (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Course","Topics","Members only"],rows,[{f:"course_name"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderTools(host){
   var rows=DATA.tools||[]; if(!rows.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Tools & resources"));
-  w.appendChild(el("div","note",fmt(rows.length)+" — from ghl_tools_resources (cron-synced)."));
-  var s=el("div","scroll"); s.appendChild(table(["Resource","Topics","Members only","Paid"],rows,[{f:"resource_title"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"—";}},{f:"paid_resource",fn:function(v){return v?"✓":"—";}}])); w.appendChild(s); host.appendChild(w);
+  w.appendChild(el("div","note",fmt(rows.length)+" - from ghl_tools_resources (cron-synced)."));
+  var s=el("div","scroll"); s.appendChild(table(["Resource","Topics","Members only","Paid"],rows,[{f:"resource_title"},{f:"educational_topics",fn:function(v){return arr(v);}},{f:"membership_required",fn:function(v){return v?"✓":"-";}},{f:"paid_resource",fn:function(v){return v?"✓":"-";}}])); w.appendChild(s); host.appendChild(w);
 }
 function renderUpcomingEvents(host){
   var rows=DATA.upcoming_events||[]; if(!rows.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Event lineup"));
-  w.appendChild(el("div","note",fmt(rows.length)+" event slots — from ghl_upcoming_events (cron-synced)."));
+  w.appendChild(el("div","note",fmt(rows.length)+" event slots - from ghl_upcoming_events (cron-synced)."));
   var s=el("div","scroll"); s.appendChild(table(["Event","Date","Time","Location"],rows,[{f:"event_title"},{f:"event_date"},{f:"event_time"},{f:"event_location"}])); w.appendChild(s); host.appendChild(w);
 }
 var PANEL_EXPLAIN = {
-  "Data health": "Live check that each data pipeline is still running. Heartbeat = did the SYNC run recently (from pg_cron run history / each sync’s last-run time), NOT when data last changed — so a quiet feed with no new rows won’t false-alarm. Green = on schedule, red = STALE (a sync stopped — investigate), grey = not run yet. A GitHub Action re-checks this every few hours and emails us if anything goes red.",
-  "Conversions — leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large — better UTM/source capture shrinks it.",
+  "Data health": "Live check that each data pipeline is still running. Heartbeat = did the SYNC run recently (from pg_cron run history / each sync’s last-run time), NOT when data last changed - so a quiet feed with no new rows won’t false-alarm. Green = on schedule, red = STALE (a sync stopped - investigate), grey = not run yet. A GitHub Action re-checks this every few hours and emails us if anything goes red.",
+  "Conversions - leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large - better UTM/source capture shrinks it.",
   "Weekly scorecard": "One row per week (last 26). New-lead counts use the contact-creation date, so recent weeks are accurate but older weeks can lump onto the initial data-load date. Engaged = did something active that week; new members = joined that week. Read the trend, not any single week.",
-  "Website traffic (GA4)": "Website sessions grouped by GA4’s default channel (Direct, Organic Search, Organic Social, Referral, Email, Paid…). Pulled daily; GA4 finalizes numbers 1–2 days late, so the latest day or two can still rise. Pick a period to scope the totals.",
+  "Website traffic (GA4)": "Website sessions grouped by GA4’s default channel (Direct, Organic Search, Organic Social, Referral, Email, Paid…). Pulled daily; GA4 finalizes numbers 1-2 days late, so the latest day or two can still rise. Pick a period to scope the totals.",
   "Top pages": "Most-viewed pages from GA4. Pick a period (year/month/week/day) to scope it; views and sessions sum across the chosen period. Shows which content and landing pages actually get traffic.",
-  "New leads per week, by channel": "New tracked leads by the channel of their FIRST touch (from lead_events), last 10 weeks. Forward-looking attribution — only counts leads captured since event tracking started, so it’s smaller than total contacts.",
-  "Event attendance": "Who attended each event, from the per-event check-in fields in GHL. Pick an event to see attendee names. Runs current through this month (an earlier bug had frozen it at May — fixed).",
-  "Texts (SMS)": "Daily text counts from GHL (last 90 days), split by direction and delivery status. Watch “failed/undelivered” — a spike usually means a bad number list or carrier filtering.",
+  "New leads per week, by channel": "New tracked leads by the channel of their FIRST touch (from lead_events), last 10 weeks. Forward-looking attribution - only counts leads captured since event tracking started, so it’s smaller than total contacts.",
+  "Event attendance": "Who attended each event, from the per-event check-in fields in GHL. Pick an event to see attendee names. Runs current through this month (an earlier bug had frozen it at May - fixed).",
+  "Texts (SMS)": "Daily text counts from GHL (last 90 days), split by direction and delivery status. Watch “failed/undelivered” - a spike usually means a bad number list or carrier filtering.",
   "Appointments": "Calendar bookings from GHL, by appointment date; status shows confirmed vs cancelled. Test bookings are excluded.",
   "Opportunities": "Deals in GHL pipelines, by created date. “Total value” sums the monetary value on deals in the selected period. Grouped by pipeline + status.",
-  "Emails (GHL campaigns)": "Per-campaign send stats from GHL — sent, delivered, failed, delivered %. Pick a period to scope by the campaign’s send date (the totals recompute for that period). Opens and clicks aren’t exposed by GHL’s API, so they’re not shown; delivered % is the best deliverability signal available.",
-  "UTMs & sources": "Leads that arrived carrying UTM parameters. Capture is sparse upstream — most links aren’t tagged — so this undercounts; it grows as campaign links get properly UTM-tagged.",
+  "Emails (GHL campaigns)": "Per-campaign send stats from GHL - sent, delivered, failed, delivered %. Pick a period to scope by the campaign’s send date (the totals recompute for that period). Opens and clicks aren’t exposed by GHL’s API, so they’re not shown; delivered % is the best deliverability signal available.",
+  "UTMs & sources": "Leads that arrived carrying UTM parameters. Capture is sparse upstream - most links aren’t tagged - so this undercounts; it grows as campaign links get properly UTM-tagged.",
   "Social channels": "Per-platform totals from the social-analytics (Metricool) project. Followers = latest on file; impressions/interactions/views are summed over what’s collected. For YouTube, “followers” = subscribers.",
   "Reels / short-form video": "Short-form video performance by platform; views and engagement are cumulative per reel. (TikTok is all short-form; some YouTube Shorts aren’t broken out yet.)",
-  "Calculator usage": "How many times each calculator was unlocked, and what share of users are active members — a proxy for which tools attract people who convert.",
-  "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch — mostly internal test calls — so treat it as a baseline.",
+  "Calculator usage": "How many times each calculator was unlocked, and what share of users are active members - a proxy for which tools attract people who convert.",
+  "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch - mostly internal test calls - so treat it as a baseline.",
   "Membership by type": "Active + inactive members grouped by membership type (Individual, Couple, Community…). “(unspecified)” = has a status but no type set.",
-  "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) — the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse.",
+  "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) - the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse.",
   "Vendor partners": "Vendor / service-provider directory from a GHL custom object (ghl_vendor_resources), kept current by a cron. “Specialties” is what they do; “Active” flags whether they’re currently listed. This is the pool Lani and the routing matrix draw from.",
   "Educators & mentors": "Educators and mentors catalog (ghl_educators_mentors), tagged by the topics and investor levels they cover. Cron-synced from GHL.",
   "Education library": "On-demand course / education catalog (ghl_educational_courses) with topic tags and whether membership is required. Cron-synced from GHL.",
-  "Tools & resources": "Calculators, tools and resources catalog (ghl_tools_resources) — topics, member-only, and paid flags. Cron-synced from GHL.",
-  "Event lineup": "The configured event slots (ghl_upcoming_events) — date, time, and location. This is the event catalog; the “Event attendance” panel above is who actually showed up."
+  "Tools & resources": "Calculators, tools and resources catalog (ghl_tools_resources) - topics, member-only, and paid flags. Cron-synced from GHL.",
+  "Event lineup": "The configured event slots (ghl_upcoming_events) - date, time, and location. This is the event catalog; the “Event attendance” panel above is who actually showed up."
 };
 function addPanelExplainers(){
   var panels=document.getElementById("panels");
