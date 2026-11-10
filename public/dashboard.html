@@ -189,7 +189,7 @@ function renderEvents(host){
   var roster=DATA.event_roster||[];
   var byEvent={}; roster.forEach(function(r){ var k=r.event_name||"(unnamed)"; (byEvent[k]||(byEvent[k]={name:k,date:r.event_date,people:0,who:[]})); byEvent[k].people++; byEvent[k].who.push(r.full_name||"—"); if(r.event_date&&(!byEvent[k].date||r.event_date>byEvent[k].date))byEvent[k].date=r.event_date; });
   var events=Object.keys(byEvent).map(function(k){return byEvent[k];}).sort(function(a,b){return (b.date||"").localeCompare(a.date||"");});
-  var sel=el("select","pick"); sel.appendChild(el("option",null,"All events ("+events.length+") — overview"));
+  var sel=el("select","pick"); var o0=el("option",null,"All events ("+events.length+") — overview"); o0.value=""; sel.appendChild(o0);
   events.forEach(function(e){ var o=el("option",null,e.name+(e.date?(" — "+e.date):"")); o.value=e.name; sel.appendChild(o); });
   if(evSel)sel.value=evSel; w.appendChild(sel);
   var body=el("div","scroll"); w.appendChild(body);
@@ -203,13 +203,70 @@ function renderEvents(host){
   sel.onchange=function(){evSel=sel.value;draw();}; draw(); host.appendChild(w);
 }
 
+function mk(v,l){ var d=el("div"); d.appendChild(el("b",null,v)); d.appendChild(el("span",null,l)); return d; }
+// a panel with a Year/Month/Week/Day filter over `rows` by date field `dk`; body = fn(container, filteredRows)
+function periodPanel(host,title,note,rows,dk,body){
+  var w=el("div","panel"); w.appendChild(el("h3",null,title)); if(note)w.appendChild(el("div","note",note));
+  var fh=el("div"); w.appendChild(fh); var bd=el("div"); w.appendChild(bd); host.appendChild(w);
+  var f=makeFilter(fh,function(){draw();}); f.setData(rows.map(function(r){return r[dk];})); f.render();
+  function draw(){ bd.innerHTML=""; body(bd, rows.filter(function(r){return f.pred(r[dk]);})); }
+  draw();
+}
+function renderGA4(host){
+  periodPanel(host,"Website traffic (GA4)","Sessions by channel from ga4_daily. Pick a period.",(DATA.ga4||[]),"date",function(b,rows){
+    var tot=0,eng=0,nu=0,by={};
+    rows.forEach(function(r){ tot+=+r.sessions||0; eng+=+r.engaged_sessions||0; nu+=+r.new_users||0; var c=r.channel||"(other)"; by[c]=(by[c]||0)+(+r.sessions||0); });
+    var mini=el("div","mini"); [mk(fmt(tot),"Sessions"),mk(fmt(eng),"Engaged"),mk(tot?(Math.round(eng/tot*1000)/10+"%"):"—","Engaged rate"),mk(fmt(nu),"New users")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
+    var list=Object.keys(by).map(function(k){return {channel:k,sessions:by[k]};}).sort(function(a,b){return b.sessions-a.sessions;});
+    var s=el("div","scroll"); s.appendChild(table(["Channel","Sessions"],list,[{f:"channel"},{f:"sessions",n:1,fn:function(v){return fmt(v);}}])); b.appendChild(s);
+  });
+}
+function renderMessages(host){
+  periodPanel(host,"Texts (SMS)","Daily SMS from ghl_message_logs (last 90 days). Pick a period.",(DATA.sms||[]),"date",function(b,rows){
+    var inb=0,out=0,del=0,fail=0;
+    rows.forEach(function(r){ var n=+r.n||0; if(r.direction==="inbound")inb+=n; else out+=n; if(r.status==="delivered")del+=n; if(r.status==="failed"||r.status==="undelivered")fail+=n; });
+    var mini=el("div","mini"); [mk(fmt(inb+out),"Total"),mk(fmt(out),"Outbound"),mk(fmt(inb),"Inbound"),mk(fmt(del),"Delivered"),mk(fmt(fail),"Failed")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
+  });
+}
+function renderAppointments(host){
+  periodPanel(host,"Appointments","GHL calendar bookings (by appointment date). Test bookings excluded.",(DATA.appointments||[]),"date",function(b,rows){
+    var by={}; rows.forEach(function(r){ var s=r.status||"(none)"; by[s]=(by[s]||0)+1; });
+    var mini=el("div","mini"); mini.appendChild(mk(fmt(rows.length),"Bookings")); Object.keys(by).forEach(function(k){mini.appendChild(mk(fmt(by[k]),k));}); b.appendChild(mini);
+    var s=el("div","scroll"); s.appendChild(table(["Date","Status","Calendar","Contact"],rows.slice(0,200),[{f:"date"},{f:"status"},{f:"calendar"},{f:"contact"}])); b.appendChild(s);
+  });
+}
+function renderOpportunities(host){
+  periodPanel(host,"Opportunities","GHL pipeline deals (by created date). Test records excluded.",(DATA.opportunities||[]),"date",function(b,rows){
+    var val=0,by={}; rows.forEach(function(r){ val+=+r.value||0; var k=(r.pipeline||"(none)")+" · "+(r.status||""); by[k]=(by[k]||0)+1; });
+    var mini=el("div","mini"); mini.appendChild(mk(fmt(rows.length),"Deals")); mini.appendChild(mk("$"+fmt(Math.round(val)),"Total value")); b.appendChild(mini);
+    var list=Object.keys(by).map(function(k){return {k:k,n:by[k]};}).sort(function(a,b){return b.n-a.n;});
+    var s=el("div","scroll"); s.appendChild(table(["Pipeline · status","Deals"],list,[{f:"k"},{f:"n",n:1}])); b.appendChild(s);
+  });
+}
+function renderEmails(host){
+  var t=DATA.email_totals||{}; var w=el("div","panel"); w.appendChild(el("h3",null,"Emails (GHL campaigns)"));
+  w.appendChild(el("div","note","Sent / delivered / failed per completed campaign (opens & clicks aren't in GHL's API)."));
+  var mini=el("div","mini"); [mk(fmt(t.campaigns),"Campaigns"),mk(fmt(t.total_sent),"Sent"),mk(fmt(t.total_delivered),"Delivered"),mk(pct(t.delivered_pct),"Delivered %"),mk(fmt(t.total_failed),"Failed")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  var s=el("div","scroll"); s.appendChild(table(["Campaign","Sent","Delivered","%","Failed"],DATA.email_campaigns||[],[{f:"name"},{f:"sent",n:1,fn:function(v){return fmt(v);}},{f:"delivered",n:1,fn:function(v){return fmt(v);}},{f:"delivered_pct",n:1,fn:function(v){return pct(v);}},{f:"failed",n:1}])); w.appendChild(s); host.appendChild(w);
+}
+function renderUTMs(host){
+  var w=el("div","panel"); w.appendChild(el("h3",null,"UTMs & sources"));
+  w.appendChild(el("div","note","Leads carrying a UTM (capture is sparse upstream). From ghl_contact_attribution."));
+  var s=el("div","scroll"); s.appendChild(table(["Source","Medium","Campaign","Leads"],DATA.utm||[],[{f:"utm_source"},{f:"utm_medium"},{f:"utm_campaign"},{f:"leads",n:1,fn:function(v){return fmt(v);}}])); w.appendChild(s); host.appendChild(w);
+}
 function renderAll(){
   renderKpis();
   var p=document.getElementById("panels"); p.innerHTML="";
   renderConversions(p);
   renderWeekly(p);
+  renderGA4(p);
   renderLeadsByWeek(p);
   renderEvents(p);
+  renderMessages(p);
+  renderAppointments(p);
+  renderOpportunities(p);
+  renderEmails(p);
+  renderUTMs(p);
   renderTwoCol(p);
 }
 
