@@ -79,7 +79,7 @@ export default async function handler(req, res) {
     }
 
     const [social, reels] = await Promise.all([
-      socialView('evolution_daily?select=date,network,followers,impressions,interactions,views,video_views,reels_views&order=date.desc&limit=4000'),
+      socialView('v_social_channels'),
       socialView('v_reels_summary'),
     ]);
 

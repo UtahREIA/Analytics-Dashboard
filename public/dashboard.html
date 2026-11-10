@@ -274,6 +274,21 @@ function renderUTMs(host){
   w.appendChild(el("div","note","Leads carrying a UTM (capture is sparse upstream). From ghl_contact_attribution."));
   var s=el("div","scroll"); s.appendChild(table(["Source","Medium","Campaign","Leads"],DATA.utm||[],[{f:"utm_source"},{f:"utm_medium"},{f:"utm_campaign"},{f:"leads",n:1,fn:function(v){return fmt(v);}}])); w.appendChild(s); host.appendChild(w);
 }
+function renderSocial(host){
+  var rows=DATA.social||[]; if(!rows.length)return;
+  var list=rows.slice().sort(function(a,b){return (+b.followers||0)-(+a.followers||0);});
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Social channels"));
+  w.appendChild(el("div","note","Per platform, from the social-analytics project (Metricool). Followers = latest on file; impressions/interactions/views are summed. For YouTube, “followers” = subscribers."));
+  w.appendChild(table(["Network","Followers","Impressions","Interactions","Views"],list,[{f:"network"},{f:"followers",n:1,fn:function(v){return fmt(v);}},{f:"impressions",n:1,fn:function(v){return fmt(v);}},{f:"interactions",n:1,fn:function(v){return fmt(v);}},{f:"views",n:1,fn:function(v){return fmt(v);}}]));
+  host.appendChild(w);
+}
+function renderReels(host){
+  var rows=DATA.reels||[]; if(!rows.length)return;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Reels / short-form video"));
+  w.appendChild(el("div","note","Short-form video by platform (from the social-analytics project)."));
+  w.appendChild(table(["Network","Reels","Total views","Avg views","Engagement"],rows,[{f:"network"},{f:"reels",n:1},{f:"total_views",n:1,fn:function(v){return fmt(v);}},{f:"avg_views",n:1,fn:function(v){return fmt(v);}},{f:"total_engagement",n:1,fn:function(v){return fmt(v);}}]));
+  host.appendChild(w);
+}
 function renderGA4Pages(host){
   var tp=DATA.ga4_top_pages||[]; if(!tp.length)return;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Top pages (last 30 days)"));
@@ -292,6 +307,8 @@ function renderAll(){
   renderMessages(p);
   renderAppointments(p);
   renderOpportunities(p);
+  renderSocial(p);
+  renderReels(p);
   renderEmails(p);
   renderUTMs(p);
   renderTwoCol(p);
