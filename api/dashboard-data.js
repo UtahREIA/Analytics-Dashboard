@@ -67,8 +67,16 @@ export default async function handler(req, res) {
       view('v_opportunities_list?order=date.desc.nullslast&limit=1000'),
       view('ga4_daily?select=date,channel,sessions,engaged_sessions,new_users&order=date.desc&limit=3000'),
       view('v_email_campaign_stats?order=date_scheduled.desc.nullslast&limit=100'),
-      view('v_ga4_top_pages_30d?limit=50'),
+      view('ga4_page_daily?select=date,page_path,views,sessions&order=date.desc,page_path.asc&limit=1000'),
     ]);
+
+    // ga4_page_daily grows daily; page past the 1000-row cap (stable order on date+page_path).
+    let ga4PagesAll = ga4Pages;
+    for (let off = 1000; ga4PagesAll.length === off && off < 20000; off += 1000) {
+      const more = await view(`ga4_page_daily?select=date,page_path,views,sessions&order=date.desc,page_path.asc&limit=1000&offset=${off}`);
+      ga4PagesAll = ga4PagesAll.concat(more);
+      if (more.length < 1000) break;
+    }
 
     // conversion_contacts can exceed the PostgREST 1000-row cap; page the rest.
     let cc = convContacts;
@@ -108,7 +116,7 @@ export default async function handler(req, res) {
       opportunities: opps,
       ga4: ga4,
       email_campaigns: emailCampaigns,
-      ga4_top_pages: ga4Pages,
+      ga4_pages: ga4PagesAll,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });

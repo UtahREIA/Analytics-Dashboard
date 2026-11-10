@@ -29,6 +29,9 @@
   .kpi .info:hover{text-decoration:underline}
   .kpi-explain{display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--mut);font-size:12px;line-height:1.5}
   .kpi-explain.show{display:block}
+  .panel h3 .hinfo{color:var(--accent2);font-size:12px;cursor:pointer;user-select:none;font-weight:400;margin-left:10px;white-space:nowrap}
+  .panel h3 .hinfo:hover{text-decoration:underline}
+  .panel > .kpi-explain{margin-top:0;margin-bottom:10px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
   .panel h3{margin:0 0 4px;font-size:16px}
   .note{color:var(--mut);font-size:12.5px;margin:0 0 12px}
@@ -290,10 +293,45 @@ function renderReels(host){
   host.appendChild(w);
 }
 function renderGA4Pages(host){
-  var tp=DATA.ga4_top_pages||[]; if(!tp.length)return;
-  var w=el("div","panel"); w.appendChild(el("h3",null,"Top pages (last 30 days)"));
-  w.appendChild(el("div","note","Most-viewed pages from GA4 (v_ga4_top_pages_30d)."));
-  var s=el("div","scroll"); s.appendChild(table(["Page","Views","Sessions","Users"],tp,[{f:"page_path"},{f:"views",n:1,fn:function(v){return fmt(v);}},{f:"sessions",n:1,fn:function(v){return fmt(v);}},{f:"total_users",n:1,fn:function(v){return fmt(v);}}])); w.appendChild(s); host.appendChild(w);
+  var rows=DATA.ga4_pages||[]; if(!rows.length)return;
+  periodPanel(host,"Top pages","Most-viewed pages from GA4 (ga4_page_daily). Pick a period; views and sessions sum across it.",rows,"date",function(b,sub){
+    var by={}; sub.forEach(function(r){ var p=r.page_path||"(not set)"; var g=by[p]||(by[p]={page_path:p,views:0,sessions:0}); g.views+=+r.views||0; g.sessions+=+r.sessions||0; });
+    var list=Object.keys(by).map(function(k){return by[k];}).sort(function(a,b){return b.views-a.views;}).slice(0,50);
+    var s=el("div","scroll"); s.appendChild(table(["Page","Views","Sessions"],list,[{f:"page_path"},{f:"views",n:1,fn:function(v){return fmt(v);}},{f:"sessions",n:1,fn:function(v){return fmt(v);}}])); b.appendChild(s);
+  });
+}
+var PANEL_EXPLAIN = {
+  "Conversions — leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large — better UTM/source capture shrinks it.",
+  "Weekly scorecard": "One row per week (last 26). New-lead counts use the contact-creation date, so recent weeks are accurate but older weeks can lump onto the initial data-load date. Engaged = did something active that week; new members = joined that week. Read the trend, not any single week.",
+  "Website traffic (GA4)": "Website sessions grouped by GA4’s default channel (Direct, Organic Search, Organic Social, Referral, Email, Paid…). Pulled daily; GA4 finalizes numbers 1–2 days late, so the latest day or two can still rise. Pick a period to scope the totals.",
+  "Top pages": "Most-viewed pages from GA4. Pick a period (year/month/week/day) to scope it; views and sessions sum across the chosen period. Shows which content and landing pages actually get traffic.",
+  "New leads per week, by channel": "New tracked leads by the channel of their FIRST touch (from lead_events), last 10 weeks. Forward-looking attribution — only counts leads captured since event tracking started, so it’s smaller than total contacts.",
+  "Event attendance": "Who attended each event, from the per-event check-in fields in GHL. Pick an event to see attendee names. Runs current through this month (an earlier bug had frozen it at May — fixed).",
+  "Texts (SMS)": "Daily text counts from GHL (last 90 days), split by direction and delivery status. Watch “failed/undelivered” — a spike usually means a bad number list or carrier filtering.",
+  "Appointments": "Calendar bookings from GHL, by appointment date; status shows confirmed vs cancelled. Test bookings are excluded.",
+  "Opportunities": "Deals in GHL pipelines, by created date. “Total value” sums the monetary value on deals in the selected period. Grouped by pipeline + status.",
+  "Emails (GHL campaigns)": "Per-campaign send stats from GHL — sent, delivered, failed, delivered %. Opens and clicks aren’t exposed by GHL’s API, so they’re not shown; delivered % is the best deliverability signal available.",
+  "UTMs & sources": "Leads that arrived carrying UTM parameters. Capture is sparse upstream — most links aren’t tagged — so this undercounts; it grows as campaign links get properly UTM-tagged.",
+  "Social channels": "Per-platform totals from the social-analytics (Metricool) project. Followers = latest on file; impressions/interactions/views are summed over what’s collected. For YouTube, “followers” = subscribers.",
+  "Reels / short-form video": "Short-form video performance by platform; views and engagement are cumulative per reel. (TikTok is all short-form; some YouTube Shorts aren’t broken out yet.)",
+  "Calculator usage": "How many times each calculator was unlocked, and what share of users are active members — a proxy for which tools attract people who convert.",
+  "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch — mostly internal test calls — so treat it as a baseline.",
+  "Membership by type": "Active + inactive members grouped by membership type (Individual, Couple, Community…). “(unspecified)” = has a status but no type set.",
+  "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) — the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse."
+};
+function addPanelExplainers(){
+  var panels=document.getElementById("panels");
+  var heads=panels.querySelectorAll(".panel > h3");
+  Array.prototype.forEach.call(heads, function(h){
+    if(h.querySelector(".hinfo")) return;
+    var explain=PANEL_EXPLAIN[(h.textContent||"").trim()];
+    if(!explain) return;
+    var exp=el("div","kpi-explain",explain);
+    var info=el("span","hinfo","ⓘ what this means");
+    info.onclick=function(){ exp.classList.toggle("show"); };
+    h.appendChild(info);
+    h.parentNode.insertBefore(exp, h.nextSibling);
+  });
 }
 function renderAll(){
   renderKpis();
@@ -312,6 +350,7 @@ function renderAll(){
   renderEmails(p);
   renderUTMs(p);
   renderTwoCol(p);
+  addPanelExplainers();
 }
 
 async function load(){
