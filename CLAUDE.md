@@ -215,15 +215,15 @@ Build the top 10 numbers first. Messages, workflows, opportunities, and social c
 - [ ] Fix UTM capture gaps
 
 ### Phase 2: Tables and data feeds (Weeks 3 to 5, due Dec 4)
-- [ ] Draft Supabase migration for `leads` and `lead_events`
-- [ ] Create summary tables for GA4 and social
-- [ ] Lani: Vapi end-of-call to Supabase, then sync to GHL
-- [ ] GHL webhook endpoint on Vercel (forms, surveys, events)
-- [ ] Event writes in calculator and Rehab Estimator functions
-- [ ] Event writes in property listing functions
-- [ ] Airtable backfill, then scheduled pull
-- [ ] Daily GA4 and social pull
-- [ ] Backstop retry cron for failed GHL syncs
+- [x] Draft Supabase migration for `leads` and `lead_events` (tables live)
+- [x] Create summary tables for GA4 and social (`ga4_daily`, `ga4_page_daily`; social project `evolution_daily`, `post_snapshots`)
+- [x] Lani: Vapi end-of-call to Supabase, then sync to GHL — done by Lani itself (dual-writes via structured outputs; verified Nov 9, 23 `voice agent lead` contacts). No separate sync fn needed. See memory `lani-already-syncs-to-ghl`.
+- [x] GHL webhook endpoint on Vercel (forms, surveys, events) — `ghl-webhook` edge fn
+- [x] Event writes in calculator and Rehab Estimator functions (`/api/track-event`; Rehab has no lead seam by design)
+- [x] Event writes in property listing functions (`listing_posted` via Airtable Properties pull)
+- [x] Airtable backfill, then scheduled pull — pull runs in `sync-form-submissions` Vercel cron (daily 9am); idempotent. Verified Nov 9.
+- [x] Daily GA4 and social pull (GA4 Vercel cron; social Metricool pull)
+- [~] Backstop retry cron for failed GHL syncs — OBSOLETE: no outbound Supabase→GHL fn exists to retry (Lani pushes to GHL directly). All `*_synced_at` cols are inbound mirrors. Closed Nov 9.
 
 ### Phase 3: Dashboard (Weeks 6 to 8, due Dec 23)
 - [ ] SQL views for first numbers

@@ -35,13 +35,24 @@ Verified by counting non-null values across all 4,607 contacts. Everything else 
 |---|---|---|---|---|---|
 | membership_type | Membership Type | `membership_type` | `T6NZIu326VN3mn5sG8YH` | SINGLE_OPTIONS | yes |
 | membership_date | Membership Date | `membership_date` | `ToVELcdiYu5Yg88zUEUk` | DATE | yes |
-| membership_expiration_date | Expiration Date | `expiration_date` | `Vak42PRO9dfbEHb2w727` | DATE | sparse |
+| membership_expiration_date | Expiration Date | `expiration_date` | `Vak42PRO9dfbEHb2w727` | DATE | sparse (47 in GHL — data-entry gap, not a sync bug; Chris's call) |
+| membership_inactive_date | Inactive Date | `inactive_date` | `Gq8W59yzjdN11VdVwKfm` | DATE | **1,061 in GHL** — added to the sync 2026-11-09 (v21); needs a full resync to backfill |
+| membership_cancelation_date | Cancelation Date | `cancelation_date` | `WuOCzjFan5ldNCH0IxVd` | DATE | 2 in GHL — added to the sync 2026-11-09 (v21) |
 | membership_fee | Membership Fee | `membership_fee` | `A5heKY8JkVFIQrliqNbv` | NUMERICAL | yes |
 | true_jv_member | TRUE JV Member | `true_jv_member` | `JTg8Tk40RObLc9d60NB4` | SINGLE_OPTIONS | 72 |
 | profile_type | Profile Type | `profile_type` | `8cDnmVymbWZc9IzNEsvG` | TEXT | 19 (low) |
 | how_did_you_hear_about_us | How did you hear about us? | `how_did_you_hear_about_us` | `tsGtu8zCkZBpOS1nbbeO` | SINGLE_OPTIONS | yes |
 | who_referred_you | Who Referred You? (optional) | `who_referred_you` | `FHNFZq7RIGmSrVGTzbKx` | TEXT | sparse |
 | first_meeting_date | First Meeting | `first_meeting` | `p8yoM0ab8zGEd9wAuWcX` | DATE | 997 |
+
+## Membership lifecycle dates (added 2026-11-09)
+
+The sync now maps the full lifecycle: `membership_date` (join), `membership_expiration_date`,
+`membership_inactive_date`, `membership_cancelation_date`. "Pending renewal date" and
+"council membership date" were asked about but **have no GHL field**, so they are not synced.
+Inactive Date exists on **1,061** GHL contacts (≈ the Inactive member count) and was previously
+dropped entirely — run a full resync (`?full=1`) to backfill. Expiration Date is genuinely
+sparse in GHL (47); if Chris wants expiration tracked, the membership workflow has to set it.
 
 ## Needs confirmation before coding (do NOT guess)
 

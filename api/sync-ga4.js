@@ -106,6 +106,51 @@ function toRows(report) {
   }).filter((r) => r.date);
 }
 
+// runReport over date x pagePath for the "top page views" feed. screenPageViews is
+// GA4's page-view metric. Same YYYYMMDD date handling as the channel report.
+async function runPageReport(accessToken, days) {
+  const res = await fetchRetry(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${GA4_PROPERTY_ID}:runReport`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dimensions: [{ name: 'date' }, { name: 'pagePath' }],
+        metrics: [
+          { name: 'screenPageViews' },
+          { name: 'sessions' },
+          { name: 'totalUsers' },
+        ],
+        limit: 100000,
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`runPageReport failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+function toPageRows(report) {
+  const rows = report.rows || [];
+  return rows.map((r) => {
+    const d = r.dimensionValues || [];
+    const m = r.metricValues || [];
+    const ymd = String(d[0]?.value || '');
+    const date = ymd.length === 8 ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}` : null;
+    return {
+      date,
+      page_path: d[1]?.value || '(not set)',
+      views: Number(m[0]?.value || 0),
+      sessions: Number(m[1]?.value || 0),
+      total_users: Number(m[2]?.value || 0),
+      updated_at: new Date().toISOString(),
+    };
+  }).filter((r) => r.date && r.page_path);
+}
+
 // Upsert on (date, channel): both the merge-duplicates header and the
 // ?on_conflict parameter are required (house rule).
 async function upsertRows(rows) {
@@ -127,6 +172,26 @@ async function upsertRows(rows) {
   return rows.length;
 }
 
+// Upsert page rows on (date, page_path). Same merge-duplicates + on_conflict rule.
+async function upsertPageRows(rows) {
+  if (!rows.length) return 0;
+  const res = await fetchRetry(
+    `${SUPABASE_URL}/rest/v1/ga4_page_daily?on_conflict=date,page_path`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify(rows),
+    },
+  );
+  if (!res.ok) throw new Error(`ga4_page_daily upsert failed: ${res.status} ${await res.text()}`);
+  return rows.length;
+}
+
 export default async function handler(req, res) {
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'unauthorized' });
@@ -143,11 +208,18 @@ export default async function handler(req, res) {
 
   try {
     const accessToken = await getAccessToken();
+
     const report = await runReport(accessToken, days);
     const rows = toRows(report);
     const written = await upsertRows(rows);
-    console.log(`[sync-ga4] ${JSON.stringify({ full, days, rows: rows.length, written })}`);
-    return res.status(200).json({ ok: true, full, days, rows: rows.length, written });
+
+    // Page-level "top page views" feed into ga4_page_daily.
+    const pageReport = await runPageReport(accessToken, days);
+    const pageRows = toPageRows(pageReport);
+    const pageWritten = await upsertPageRows(pageRows);
+
+    console.log(`[sync-ga4] ${JSON.stringify({ full, days, rows: rows.length, written, pageRows: pageRows.length, pageWritten })}`);
+    return res.status(200).json({ ok: true, full, days, rows: rows.length, written, pageRows: pageRows.length, pageWritten });
   } catch (err) {
     console.error(`[sync-ga4] error ${String(err)}`);
     return res.status(500).json({ ok: false, error: String(err) });
