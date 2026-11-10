@@ -268,10 +268,18 @@ function renderOpportunities(host){
   });
 }
 function renderEmails(host){
-  var t=DATA.email_totals||{}; var w=el("div","panel"); w.appendChild(el("h3",null,"Emails (GHL campaigns)"));
-  w.appendChild(el("div","note","Sent / delivered / failed per completed campaign (opens & clicks aren't in GHL's API)."));
-  var mini=el("div","mini"); [mk(fmt(t.campaigns),"Campaigns"),mk(fmt(t.total_sent),"Sent"),mk(fmt(t.total_delivered),"Delivered"),mk(pct(t.delivered_pct),"Delivered %"),mk(fmt(t.total_failed),"Failed")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
-  var s=el("div","scroll"); s.appendChild(table(["Campaign","Sent","Delivered","%","Failed"],DATA.email_campaigns||[],[{f:"name"},{f:"sent",n:1,fn:function(v){return fmt(v);}},{f:"delivered",n:1,fn:function(v){return fmt(v);}},{f:"delivered_pct",n:1,fn:function(v){return pct(v);}},{f:"failed",n:1}])); w.appendChild(s); host.appendChild(w);
+  var rows=(DATA.email_campaigns||[]).map(function(c){ return {
+    date:(c.date_scheduled||"").slice(0,10), name:c.name,
+    sent:+c.sent||0, delivered:+c.delivered||0, failed:+c.failed||0, delivered_pct:c.delivered_pct
+  };}).filter(function(r){return r.date;});
+  if(!rows.length)return;
+  periodPanel(host,"Emails (GHL campaigns)","Sent / delivered / failed per completed campaign (opens & clicks aren’t in GHL’s API). Pick a period — scopes by the campaign’s send date.",rows,"date",function(b,sub){
+    var sent=0,del=0,fail=0; sub.forEach(function(r){ sent+=r.sent; del+=r.delivered; fail+=r.failed; });
+    var dp=sent?Math.round(del/sent*1000)/10:0;
+    var mini=el("div","mini"); [mk(fmt(sub.length),"Campaigns"),mk(fmt(sent),"Sent"),mk(fmt(del),"Delivered"),mk(dp+"%","Delivered %"),mk(fmt(fail),"Failed")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
+    var list=sub.slice().sort(function(a,b){return b.sent-a.sent;});
+    var s=el("div","scroll"); s.appendChild(table(["Campaign","Sent","Delivered","%","Failed"],list,[{f:"name"},{f:"sent",n:1,fn:function(v){return fmt(v);}},{f:"delivered",n:1,fn:function(v){return fmt(v);}},{f:"delivered_pct",n:1,fn:function(v){return pct(v);}},{f:"failed",n:1}])); b.appendChild(s);
+  });
 }
 function renderUTMs(host){
   var w=el("div","panel"); w.appendChild(el("h3",null,"UTMs & sources"));
@@ -359,7 +367,7 @@ var PANEL_EXPLAIN = {
   "Texts (SMS)": "Daily text counts from GHL (last 90 days), split by direction and delivery status. Watch “failed/undelivered” — a spike usually means a bad number list or carrier filtering.",
   "Appointments": "Calendar bookings from GHL, by appointment date; status shows confirmed vs cancelled. Test bookings are excluded.",
   "Opportunities": "Deals in GHL pipelines, by created date. “Total value” sums the monetary value on deals in the selected period. Grouped by pipeline + status.",
-  "Emails (GHL campaigns)": "Per-campaign send stats from GHL — sent, delivered, failed, delivered %. Opens and clicks aren’t exposed by GHL’s API, so they’re not shown; delivered % is the best deliverability signal available.",
+  "Emails (GHL campaigns)": "Per-campaign send stats from GHL — sent, delivered, failed, delivered %. Pick a period to scope by the campaign’s send date (the totals recompute for that period). Opens and clicks aren’t exposed by GHL’s API, so they’re not shown; delivered % is the best deliverability signal available.",
   "UTMs & sources": "Leads that arrived carrying UTM parameters. Capture is sparse upstream — most links aren’t tagged — so this undercounts; it grows as campaign links get properly UTM-tagged.",
   "Social channels": "Per-platform totals from the social-analytics (Metricool) project. Followers = latest on file; impressions/interactions/views are summed over what’s collected. For YouTube, “followers” = subscribers.",
   "Reels / short-form video": "Short-form video performance by platform; views and engagement are cumulative per reel. (TikTok is all short-form; some YouTube Shorts aren’t broken out yet.)",
