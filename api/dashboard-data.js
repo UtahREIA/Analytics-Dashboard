@@ -1,0 +1,80 @@
+// api/dashboard-data.js
+// Server-side data endpoint for the LIVE dashboard (public/dashboard.html).
+// Reads Supabase views with the SERVICE-ROLE key (server-only; never shipped to the
+// browser) and returns the numbers as one JSON payload. This is what makes the dashboard
+// auto-update: the page fetches this on load / on a timer and always gets live data — no
+// snapshots, no manual refresh.
+//
+// Privacy: this returns some member/attendee names (membership, event roster). Keep the
+// deployment behind Vercel Deployment Protection (Project -> Settings -> Deployment
+// Protection) so only authorized people can load it. The service-role key stays in the
+// Vercel env (SUPABASE_SERVICE_ROLE_KEY) and is never exposed.
+
+const SB = process.env.SUPABASE_URL;
+const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+async function view(path) {
+  const r = await fetch(`${SB}/rest/v1/${path}`, {
+    headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+  });
+  if (!r.ok) throw new Error(`${path} -> ${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+export default async function handler(req, res) {
+  if (!SB || !KEY) {
+    return res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set' });
+  }
+  try {
+    const [
+      funnel, days, lani, laniNeeds, convSrc, convContacts, weekly, leadsWk,
+      calc, campaigns, memType, emailTotals, utm, paidAds, roster,
+    ] = await Promise.all([
+      view('v_funnel'),
+      view('v_days_to_member'),
+      view('v_lani_calls'),
+      view('v_lani_no_match_needs'),
+      view('v_conversion_by_source?order=members.desc'),
+      view('v_conversion_contacts?select=lead_date,source,ever_member,active_member&order=ghl_contact_id.asc'),
+      view('v_weekly_scorecard?order=week.desc'),
+      view('v_leads_per_week_by_channel?order=week.desc&limit=600'),
+      view('v_calculator_usage'),
+      view('v_top_campaigns_by_members?limit=15'),
+      view('v_membership_by_type'),
+      view('v_email_totals'),
+      view('v_utm_summary?limit=100'),
+      view('v_paid_ads_summary'),
+      view('v_event_roster?select=event_name,event_date,full_name,attended&order=event_date.desc.nullslast&limit=2000'),
+    ]);
+
+    // conversion_contacts can exceed the PostgREST 1000-row cap; page the rest.
+    let cc = convContacts;
+    for (let off = 1000; cc.length === off; off += 1000) {
+      const more = await view(`v_conversion_contacts?select=lead_date,source,ever_member,active_member&order=ghl_contact_id.asc&limit=1000&offset=${off}`);
+      cc = cc.concat(more);
+      if (more.length < 1000) break;
+    }
+
+    res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
+    res.status(200).json({
+      generated_at: new Date().toISOString(),
+      funnel: funnel[0] || {},
+      days: days[0] || {},
+      lani: lani[0] || {},
+      lani_needs: laniNeeds,
+      conversions_by_source: convSrc,
+      conversion_contacts: cc.map((r) => ({ date: r.lead_date, source: r.source, ever: r.ever_member ? 1 : 0, active: r.active_member ? 1 : 0 })),
+      weekly: weekly,
+      leads_by_week: leadsWk,
+      calculators: calc,
+      campaigns: campaigns,
+      membership_by_type: memType,
+      email_totals: emailTotals[0] || {},
+      utm: utm,
+      paid_ads: paidAds,
+      event_roster: roster,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+}
