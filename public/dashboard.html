@@ -25,6 +25,10 @@
   .kpi .lab{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.03em}
   .kpi .num{font-size:30px;font-weight:680;margin-top:4px;font-variant-numeric:tabular-nums}
   .kpi .foot{color:var(--mut);font-size:12px;margin-top:4px}
+  .kpi .info{margin-top:9px;color:var(--accent2);font-size:11.5px;cursor:pointer;user-select:none;display:inline-block}
+  .kpi .info:hover{text-decoration:underline}
+  .kpi-explain{display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--mut);font-size:12px;line-height:1.5}
+  .kpi-explain.show{display:block}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
   .panel h3{margin:0 0 4px;font-size:16px}
   .note{color:var(--mut);font-size:12.5px;margin:0 0 12px}
@@ -107,15 +111,31 @@ function table(cols, rows, keys){
 function renderKpis(){
   var f=DATA.funnel||{}, d=DATA.days||{}, l=DATA.lani||{};
   var tiles=[
-    ["Leads (all contacts)", fmt(f.leads), "people in the database"],
-    ["Engaged", fmt(f.engaged), (f.lead_to_engaged_pct!=null?f.lead_to_engaged_pct+"% ":"")+"did something active"],
-    ["Members", fmt(f.members), fmt(f.renewal_pending)+" renewal pending"],
-    ["Lead → member", (f.lead_to_member_pct!=null?f.lead_to_member_pct:"—")+"%", "of all contacts are active"],
-    ["Days to member", (d.median_days==null?"—":d.median_days)+" med", "avg "+(d.avg_days==null?"—":d.avg_days)+" (where known)"],
-    ["Lani AI calls", fmt(l.calls), pct(l.match_rate_pct)+" matched"],
+    ["Leads (all contacts)", fmt(f.leads), "people in the database",
+     "Every contact in the system, from any source — Lani, forms, social media, UTM links, events. This is the top of the funnel: the total pool of people we track. It only grows."],
+    ["Engaged", fmt(f.engaged), (f.lead_to_engaged_pct!=null?f.lead_to_engaged_pct+"% ":"")+"did something active",
+     "Leads who took a real action: attended an event, used a calculator/tool, talked to Lani, booked an appointment, replied to a text/email, or sit in a sales pipeline. Shows how many are more than just a name in the database. The % is engaged ÷ all leads."],
+    ["Members", fmt(f.members), fmt(f.renewal_pending)+" renewal pending",
+     "Leads who became paid, active members (GHL status = “Active”). The footnote count is memberships flagged “renewal pending.” This is the bottom of the funnel — the goal."],
+    ["Lead → member", (f.lead_to_member_pct!=null?f.lead_to_member_pct:"—")+"%", "of all contacts are active",
+     "Your overall conversion rate = active members ÷ all leads. Of everyone in the database, this percentage are paying members right now. (The Conversions panel below breaks this down by source and lets you filter by period.)"],
+    ["Days to member", (d.median_days==null?"—":d.median_days)+" med", "avg "+(d.avg_days==null?"—":d.avg_days)+" (where known)",
+     "How long it takes a lead to become a member. “med” = the median: half of members joined faster than this number of days, half slower — so 72 means a typical member took about 72 days from first contact to joining. “avg” is the plain average (pulled up by a few slow ones). It only counts members whose first-touch date is on record, so it’s based on a smaller, known set."],
+    ["Lani AI calls", fmt(l.calls), pct(l.match_rate_pct)+" matched",
+     "Calls handled by Lani, the AI voice agent. “Matched %” is how often she connected the caller to a vendor, tool, or educator. Still early days — most of these are internal test calls for now, so treat the number as a baseline."],
   ];
   var g=document.getElementById("kpis"); g.innerHTML="";
-  tiles.forEach(function(t){ var k=el("div","kpi"); k.appendChild(el("div","lab",t[0])); k.appendChild(el("div","num",t[1])); k.appendChild(el("div","foot",t[2])); g.appendChild(k); });
+  tiles.forEach(function(t){
+    var k=el("div","kpi");
+    k.appendChild(el("div","lab",t[0]));
+    k.appendChild(el("div","num",t[1]));
+    k.appendChild(el("div","foot",t[2]));
+    var exp=el("div","kpi-explain",t[3]);
+    var info=el("div","info","ⓘ What this means");
+    info.onclick=function(){ var open=exp.classList.toggle("show"); info.textContent=open?"▲ Hide":"ⓘ What this means"; };
+    k.appendChild(info); k.appendChild(exp);
+    g.appendChild(k);
+  });
 }
 
 var convFilter;
