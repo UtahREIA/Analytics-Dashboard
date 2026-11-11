@@ -1,4 +1,8 @@
-// api/dashboard-data.js
+// api/dashboard-data.mjs
+// NOTE: .mjs (not .js) so Vercel always loads this as an ES module. Without an explicit
+// package.json "type":"module", Vercel's runtime can misclassify a .js file that uses
+// `export default` as CommonJS and crash with "Unexpected token 'export'". The .mjs
+// extension removes that ambiguity. Route is unchanged: still served at /api/dashboard-data.
 // Server-side data endpoint for the LIVE dashboard (public/dashboard.html).
 // Reads Supabase views with the SERVICE-ROLE key (server-only; never shipped to the
 // browser) and returns the numbers as one JSON payload. This is what makes the dashboard
@@ -96,10 +100,10 @@ export default async function handler(req, res) {
     }
 
     // member_roster (~1.4k rows) also exceeds the 1000-row cap; page the rest (stable order on ghl_contact_id).
-    let roster = memberRoster;
-    for (let off = 1000; roster.length === off; off += 1000) {
+    let memberRows = memberRoster;
+    for (let off = 1000; memberRows.length === off; off += 1000) {
       const more = await view(`v_member_roster?select=full_name,status,membership_type,active_since,expires_on,inactive_since&order=ghl_contact_id.asc&limit=1000&offset=${off}`);
-      roster = roster.concat(more);
+      memberRows = memberRows.concat(more);
       if (more.length < 1000) break;
     }
 
@@ -141,7 +145,7 @@ export default async function handler(req, res) {
       upcoming_events: coEvents,
       health: health,
       workflows: workflows,
-      member_roster: roster,
+      member_roster: memberRows,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });
