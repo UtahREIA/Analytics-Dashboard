@@ -45,6 +45,23 @@ from public.v_members
 group by 1
 order by 2 desc;
 
+-- Roster for the dashboard's "Active members" / "Inactive members" panels: names + the
+-- membership dates only (NO phone/email in the columns the dashboard reads). Active panel
+-- uses status Active/Renewal Pending with active_since + expires_on; inactive panel uses
+-- Inactive/Cancel Membership with inactive_since. security_invoker=false so anon/service
+-- REST reads resolve the underlying contacts join.
+create or replace view public.v_member_roster
+with (security_invoker=false) as
+select
+  full_name,
+  coalesce(ghl_membership_status, membership_status) as status,
+  membership_type,
+  membership_date              as active_since,
+  membership_expiration_date   as expires_on,
+  membership_inactive_date     as inactive_since
+from public.v_members
+where full_name is not null;
+
 -- Counts by membership type (Individual/Platinum/Couples/Vendor/Board/Sponsor/etc).
 create or replace view public.v_membership_by_type as
 select

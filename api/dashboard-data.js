@@ -46,7 +46,7 @@ export default async function handler(req, res) {
       funnel, days, lani, laniNeeds, convSrc, convContacts, weekly, leadsWk,
       calc, campaigns, memType, emailTotals, utm, paidAds, roster,
       sms, appts, opps, ga4, emailCampaigns, ga4Pages,
-      vendors, educators, courses, tools, coEvents, health, workflows,
+      vendors, educators, courses, tools, coEvents, health, workflows, memberRoster,
     ] = await Promise.all([
       view('v_funnel'),
       view('v_days_to_member'),
@@ -76,6 +76,7 @@ export default async function handler(req, res) {
       view('ghl_upcoming_events?select=event_title,event_date,event_time,event_location,speaker_name,event_type,is_active&order=event_date.desc.nullslast'),
       view('v_data_health'),
       view('ghl_workflows?select=name,status,updated_at_ghl&order=name.asc'),
+      view('v_member_roster?select=full_name,status,membership_type,active_since,expires_on,inactive_since&limit=3000'),
     ]);
 
     // ga4_page_daily grows daily; page past the 1000-row cap (stable order on date+page_path).
@@ -132,6 +133,7 @@ export default async function handler(req, res) {
       upcoming_events: coEvents,
       health: health,
       workflows: workflows,
+      member_roster: memberRoster,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });

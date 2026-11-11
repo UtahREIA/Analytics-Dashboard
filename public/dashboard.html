@@ -405,6 +405,57 @@ function renderWorkflows(host){
   search.oninput=draw; draw();
   host.appendChild(w);
 }
+function dstr(v){ return v?String(v).slice(0,10):"-"; }
+function byDateDesc(f){ return function(a,b){ var x=a[f]||"",y=b[f]||""; if(x&&!y)return -1; if(!x&&y)return 1; return y.localeCompare(x); }; }
+function rosterSearch(w,rows,drawRows){
+  var search=el("input"); search.type="text"; search.placeholder="Search by name…"; search.className="pick"; search.style.cssText="width:100%;margin:8px 0;box-sizing:border-box";
+  w.appendChild(search);
+  var body=el("div"); w.appendChild(body);
+  function draw(){ var q=(search.value||"").toLowerCase().trim();
+    var list=rows.filter(function(r){return !q||((r.full_name||"").toLowerCase().indexOf(q)>-1);});
+    body.innerHTML=""; drawRows(body,list); }
+  search.oninput=draw; draw();
+}
+function renderActiveMembers(host){
+  var rows=(DATA.member_roster||[]).filter(function(r){
+    return !/test/i.test(r.full_name||"") && (r.status==="Active"||r.status==="Renewal Pending");
+  }).sort(byDateDesc("active_since"));
+  if(!rows.length)return;
+  var today=new Date().toISOString().slice(0,10);
+  var d30=new Date(Date.now()+30*864e5).toISOString().slice(0,10);
+  var expSoon=rows.filter(function(r){return r.expires_on&&r.expires_on>=today&&r.expires_on<d30;}).length;
+  var withExp=rows.filter(function(r){return r.expires_on;}).length;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Active members"));
+  w.appendChild(el("div","note","Current members with the date they became active and when their membership expires. From GHL (contacts). Names only. Note: GHL holds an expiration date for only "+fmt(withExp)+" of them, so “Expires” is blank for the rest."));
+  var mini=el("div","mini"); [mk(fmt(rows.length),"Active"),mk(fmt(withExp),"With expiry date"),mk(fmt(expSoon),"Expiring ≤30d")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  rosterSearch(w,rows,function(body,list){
+    var s=el("div","scroll"); s.appendChild(table(["Name","Status","Active since","Expires"],list,[
+      {f:"full_name"},
+      {f:"status"},
+      {f:"active_since",fn:dstr},
+      {f:"expires_on",fn:dstr}
+    ])); body.appendChild(s);
+  });
+  host.appendChild(w);
+}
+function renderInactiveMembers(host){
+  var rows=(DATA.member_roster||[]).filter(function(r){
+    return !/test/i.test(r.full_name||"") && (r.status==="Inactive"||r.status==="Cancel Membership");
+  }).sort(byDateDesc("inactive_since"));
+  if(!rows.length)return;
+  var withDate=rows.filter(function(r){return r.inactive_since;}).length;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Inactive members"));
+  w.appendChild(el("div","note",fmt(rows.length)+" inactive, with the date their membership went inactive ("+fmt(withDate)+" have a date on file). From GHL (contacts). Names only."));
+  var mini=el("div","mini"); [mk(fmt(rows.length),"Inactive"),mk(fmt(withDate),"With inactive date")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  rosterSearch(w,rows,function(body,list){
+    var s=el("div","scroll"); s.appendChild(table(["Name","Status","Inactive since"],list,[
+      {f:"full_name"},
+      {f:"status"},
+      {f:"inactive_since",fn:dstr}
+    ])); body.appendChild(s);
+  });
+  host.appendChild(w);
+}
 var PANEL_EXPLAIN = {
   "Data health": "Live check that each data pipeline is still running. Heartbeat = did the SYNC run recently (from pg_cron run history / each sync’s last-run time), NOT when data last changed - so a quiet feed with no new rows won’t false-alarm. Green = on schedule, red = STALE (a sync stopped - investigate), grey = not run yet. A GitHub Action re-checks this every few hours and emails us if anything goes red.",
   "Conversions - leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large - better UTM/source capture shrinks it.",
@@ -423,6 +474,8 @@ var PANEL_EXPLAIN = {
   "Calculator usage": "How many times each calculator was unlocked, and what share of users are active members - a proxy for which tools attract people who convert.",
   "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch - mostly internal test calls - so treat it as a baseline.",
   "Membership by type": "Active + inactive members grouped by membership type (Individual, Couple, Community…). “(unspecified)” = has a status but no type set.",
+  "Active members": "Every current member by name, the date they became active, and when their membership expires - from GHL. Includes “Renewal Pending” (still active, due to renew). Expiration is only filled in for a handful of records in GHL, so that column is blank for most until it’s entered upstream. Search by name. Names only, no contact details.",
+  "Inactive members": "Members whose status is Inactive (or Cancel Membership), by name and the date they went inactive - from GHL. Search by name. Names only, no contact details.",
   "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) - the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse.",
   "Vendor partners": "Vendor / service-provider directory from a GHL custom object (ghl_vendor_resources), kept current by a cron. “Specialties” is what they do; “Active” flags whether they’re currently listed. This is the pool Lani and the routing matrix draw from.",
   "Educators & mentors": "Educators and mentors catalog (ghl_educators_mentors), tagged by the topics and investor levels they cover. Cron-synced from GHL.",
@@ -463,6 +516,8 @@ function renderAll(){
   renderEmails(p);
   renderUTMs(p);
   renderTwoCol(p);
+  renderActiveMembers(p);
+  renderInactiveMembers(p);
   renderVendors(p);
   renderEducators(p);
   renderCourses(p);
