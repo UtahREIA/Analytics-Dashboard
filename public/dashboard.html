@@ -416,22 +416,39 @@ function rosterSearch(w,rows,drawRows){
     body.innerHTML=""; drawRows(body,list); }
   search.oninput=draw; draw();
 }
+// GHL stores status as Active / Inactive / "Renewal Pending" / "Cancel Membership".
+// Per David: display vocabulary is Active / Expiring / Inactive. "Renewal Pending" shows as
+// "Expiring" (its own panel); "Cancel Membership" folds into Inactive.
 function renderActiveMembers(host){
   var rows=(DATA.member_roster||[]).filter(function(r){
-    return !/test/i.test(r.full_name||"") && (r.status==="Active"||r.status==="Renewal Pending");
+    return !/test/i.test(r.full_name||"") && r.status==="Active";
   }).sort(byDateDesc("active_since"));
   if(!rows.length)return;
-  var today=new Date().toISOString().slice(0,10);
-  var d30=new Date(Date.now()+30*864e5).toISOString().slice(0,10);
-  var expSoon=rows.filter(function(r){return r.expires_on&&r.expires_on>=today&&r.expires_on<d30;}).length;
   var withExp=rows.filter(function(r){return r.expires_on;}).length;
   var w=el("div","panel"); w.appendChild(el("h3",null,"Active members"));
-  w.appendChild(el("div","note","Current members with the date they became active and when their membership expires. From GHL (contacts). Names only. Note: GHL holds an expiration date for only "+fmt(withExp)+" of them, so “Expires” is blank for the rest."));
-  var mini=el("div","mini"); [mk(fmt(rows.length),"Active"),mk(fmt(withExp),"With expiry date"),mk(fmt(expSoon),"Expiring ≤30d")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  w.appendChild(el("div","note","Current active members, with the date they became active and when their membership expires. From GHL (contacts). Names only. GHL has an expiration date entered for only "+fmt(withExp)+" of them, so “Expires” is blank for the rest."));
+  var mini=el("div","mini"); [mk(fmt(rows.length),"Active"),mk(fmt(withExp),"With expiry date")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
   rosterSearch(w,rows,function(body,list){
-    var s=el("div","scroll"); s.appendChild(table(["Name","Status","Active since","Expires"],list,[
+    var s=el("div","scroll"); s.appendChild(table(["Name","Active since","Expires"],list,[
       {f:"full_name"},
-      {f:"status"},
+      {f:"active_since",fn:dstr},
+      {f:"expires_on",fn:dstr}
+    ])); body.appendChild(s);
+  });
+  host.appendChild(w);
+}
+function renderExpiringMembers(host){
+  var rows=(DATA.member_roster||[]).filter(function(r){
+    return !/test/i.test(r.full_name||"") && r.status==="Renewal Pending";
+  }).sort(byDateDesc("expires_on"));
+  if(!rows.length)return;
+  var withExp=rows.filter(function(r){return r.expires_on;}).length;
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Expiring members"));
+  w.appendChild(el("div","note","Members flagged in GHL as up for renewal (expiring), with when they became active and their expiration date. From GHL (contacts). Names only. GHL has an expiration date entered for only "+fmt(withExp)+" of them."));
+  var mini=el("div","mini"); [mk(fmt(rows.length),"Expiring"),mk(fmt(withExp),"With expiry date")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  rosterSearch(w,rows,function(body,list){
+    var s=el("div","scroll"); s.appendChild(table(["Name","Active since","Expires"],list,[
+      {f:"full_name"},
       {f:"active_since",fn:dstr},
       {f:"expires_on",fn:dstr}
     ])); body.appendChild(s);
@@ -448,9 +465,8 @@ function renderInactiveMembers(host){
   w.appendChild(el("div","note",fmt(rows.length)+" inactive, with the date their membership went inactive ("+fmt(withDate)+" have a date on file). From GHL (contacts). Names only."));
   var mini=el("div","mini"); [mk(fmt(rows.length),"Inactive"),mk(fmt(withDate),"With inactive date")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
   rosterSearch(w,rows,function(body,list){
-    var s=el("div","scroll"); s.appendChild(table(["Name","Status","Inactive since"],list,[
+    var s=el("div","scroll"); s.appendChild(table(["Name","Inactive since"],list,[
       {f:"full_name"},
-      {f:"status"},
       {f:"inactive_since",fn:dstr}
     ])); body.appendChild(s);
   });
@@ -474,8 +490,9 @@ var PANEL_EXPLAIN = {
   "Calculator usage": "How many times each calculator was unlocked, and what share of users are active members - a proxy for which tools attract people who convert.",
   "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch - mostly internal test calls - so treat it as a baseline.",
   "Membership by type": "Active + inactive members grouped by membership type (Individual, Couple, Community…). “(unspecified)” = has a status but no type set.",
-  "Active members": "Every current member by name, the date they became active, and when their membership expires - from GHL. Includes “Renewal Pending” (still active, due to renew). Expiration is only filled in for a handful of records in GHL, so that column is blank for most until it’s entered upstream. Search by name. Names only, no contact details.",
-  "Inactive members": "Members whose status is Inactive (or Cancel Membership), by name and the date they went inactive - from GHL. Search by name. Names only, no contact details.",
+  "Active members": "Members whose GHL status is Active, by name with the date they became active and their expiration date. Expiration is entered in GHL for only a handful of records, so that column is blank for most until it’s filled in upstream (that’s a GHL data-entry gap, not a dashboard issue). Search by name. Names only, no contact details.",
+  "Expiring members": "Members GHL flags as up for renewal / expiring (stored as “Renewal Pending”), by name with their active and expiration dates. These are the renewal-outreach list. Search by name. Names only, no contact details.",
+  "Inactive members": "Members whose status is Inactive (cancellations folded in here too), by name and the date they went inactive - from GHL. Search by name. Names only, no contact details.",
   "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) - the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse.",
   "Vendor partners": "Vendor / service-provider directory from a GHL custom object (ghl_vendor_resources), kept current by a cron. “Specialties” is what they do; “Active” flags whether they’re currently listed. This is the pool Lani and the routing matrix draw from.",
   "Educators & mentors": "Educators and mentors catalog (ghl_educators_mentors), tagged by the topics and investor levels they cover. Cron-synced from GHL.",
@@ -517,6 +534,7 @@ function renderAll(){
   renderUTMs(p);
   renderTwoCol(p);
   renderActiveMembers(p);
+  renderExpiringMembers(p);
   renderInactiveMembers(p);
   renderVendors(p);
   renderEducators(p);
