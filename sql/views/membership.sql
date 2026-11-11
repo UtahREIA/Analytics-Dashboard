@@ -58,7 +58,8 @@ select
   membership_type,
   membership_date              as active_since,
   membership_expiration_date   as expires_on,
-  membership_inactive_date     as inactive_since
+  membership_inactive_date     as inactive_since,
+  ghl_contact_id  -- stable paging key (ordered by, never selected into the payload)
 from public.v_members
 where full_name is not null;
 

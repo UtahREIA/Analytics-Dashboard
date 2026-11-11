@@ -76,7 +76,7 @@ export default async function handler(req, res) {
       view('ghl_upcoming_events?select=event_title,event_date,event_time,event_location,speaker_name,event_type,is_active&order=event_date.desc.nullslast'),
       view('v_data_health'),
       view('ghl_workflows?select=name,status,updated_at_ghl&order=name.asc'),
-      view('v_member_roster?select=full_name,status,membership_type,active_since,expires_on,inactive_since&limit=3000'),
+      view('v_member_roster?select=full_name,status,membership_type,active_since,expires_on,inactive_since&order=ghl_contact_id.asc&limit=1000'),
     ]);
 
     // ga4_page_daily grows daily; page past the 1000-row cap (stable order on date+page_path).
@@ -92,6 +92,14 @@ export default async function handler(req, res) {
     for (let off = 1000; cc.length === off; off += 1000) {
       const more = await view(`v_conversion_contacts?select=lead_date,source,ever_member,active_member&order=ghl_contact_id.asc&limit=1000&offset=${off}`);
       cc = cc.concat(more);
+      if (more.length < 1000) break;
+    }
+
+    // member_roster (~1.4k rows) also exceeds the 1000-row cap; page the rest (stable order on ghl_contact_id).
+    let roster = memberRoster;
+    for (let off = 1000; roster.length === off; off += 1000) {
+      const more = await view(`v_member_roster?select=full_name,status,membership_type,active_since,expires_on,inactive_since&order=ghl_contact_id.asc&limit=1000&offset=${off}`);
+      roster = roster.concat(more);
       if (more.length < 1000) break;
     }
 
@@ -133,7 +141,7 @@ export default async function handler(req, res) {
       upcoming_events: coEvents,
       health: health,
       workflows: workflows,
-      member_roster: memberRoster,
+      member_roster: roster,
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });
