@@ -1,5 +1,10 @@
 // supabase/functions/ghl-webhook/index.ts
-// VERSION: v22
+// VERSION: v23
+// v23 (2026-11-12): COMMUNITY MEMBERSHIP. Map five GHL contact checkbox custom fields to
+//   new contacts columns: reia_community, reia_latino_community, reia_military_community,
+//   veteran_investors_alliance ("VIA Community"), make_it_happen_community. New checkedOrNull()
+//   treats a present (non-"no") checkbox as true, matching GHL's "exists" count; additive and
+//   guarded by stripNulls. Backfill existing contacts with a full resync (?full=1).
 // v22 (2026-11-10): EVENT ATTENDANCE — array-valued checkboxes. GHL CHECKBOX custom
 //   fields return as arrays (e.g. ["Attended"]), but the event filter only matched a
 //   scalar string 'attended', so every event after ~May 2026 was silently dropped
@@ -57,6 +62,16 @@ function dateOrNull(val: unknown): string | null {
   if (isNullish(val)) return null;
   try { const d = new Date(String(val)); return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]; }
   catch { return null; }
+}
+// Community checkbox fields: treat the field being present (any non-null, non-"no" value) as
+// membership = true, matching GHL's "exists" count. GHL checkboxes can arrive as arrays.
+function checkedOrNull(val: unknown): boolean | null {
+  if (isNullish(val)) return null;
+  const vals = (Array.isArray(val) ? val : [val]).map((v) => String(v).trim().toLowerCase())
+    .filter((v) => v && !NULL_STRINGS.has(v));
+  if (!vals.length) return null;
+  if (vals.every((v) => v === 'no' || v === 'false' || v === '0')) return null;
+  return true;
 }
 function arrayOrNull(val: unknown): string[] | null {
   if (isNullish(val)) return null;
@@ -194,6 +209,11 @@ async function processContact(payload: Record<string, unknown>): Promise<{ conta
     last_reia_event: str(customFields['last_reia_event']),
     first_meeting_date: dateOrNull(customFields['first_meeting']),
     free_guest_pass: boolOrNull(customFields['free_guest_pass']),
+    reia_community:             checkedOrNull(customFields['reia_community']),
+    reia_latino_community:      checkedOrNull(customFields['reia_latino_community']),
+    reia_military_community:    checkedOrNull(customFields['reia_military_community']),
+    veteran_investors_alliance: checkedOrNull(customFields['veteran_investors_alliance']),
+    make_it_happen_community:   checkedOrNull(customFields['make_it_happen_community']),
     ghl_membership_status: rawStatus,
     updated_at: new Date().toISOString()
   };
