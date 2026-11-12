@@ -14,8 +14,42 @@
 // Protection) so only authorized people can load it. The service-role key stays in the
 // Vercel env (SUPABASE_SERVICE_ROLE_KEY) and is never exposed.
 
+import crypto from 'node:crypto';
+
 const SB = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SESSION_SECRET = process.env.DASHBOARD_SESSION_SECRET;
+
+// Auth gate: this endpoint returns member names, so it must not be public. Access requires a
+// valid session cookie set by api/login.mjs (HMAC-signed with DASHBOARD_SESSION_SECRET).
+function parseCookies(req) {
+  const out = {};
+  const h = req.headers && req.headers.cookie;
+  if (!h) return out;
+  for (const part of h.split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
+function validSession(req) {
+  if (!SESSION_SECRET) return false;
+  const token = parseCookies(req).dash_session;
+  if (!token || typeof token !== 'string') return false;
+  const dot = token.indexOf('.');
+  if (dot < 0) return false;
+  const bodyB64 = token.slice(0, dot);
+  const mac = token.slice(dot + 1);
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(bodyB64).digest('base64url');
+  const a = Buffer.from(mac);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+  let payload;
+  try { payload = JSON.parse(Buffer.from(bodyB64, 'base64url').toString()); } catch { return false; }
+  return payload && typeof payload.exp === 'number' && Date.now() <= payload.exp;
+}
 
 async function view(path) {
   const r = await fetch(`${SB}/rest/v1/${path}`, {
@@ -41,9 +75,46 @@ async function socialView(path) {
   } catch { return []; }
 }
 
+// Social data-freshness row for the health panel. Social is a separate project, so v_data_health
+// can't include it; we compute it here (oldest per-network newest-date; stale if > 3 days) and
+// append it to the health list. Shape matches v_data_health rows; no "sync ran" heartbeat exists
+// (the pull runs from a separate repo), so status is 'n/a' and only data_status is evaluated.
+const SOCIAL_WINDOW_MIN = 3 * 24 * 60;
+async function socialHealthRow() {
+  const base = {
+    feed: 'Social (Metricool)', last_run: null, age_min: null, max_age_min: null, status: 'n/a',
+    last_data_at: null, data_age_min: null, data_max_age_min: SOCIAL_WINDOW_MIN, data_status: 'unknown', note: null,
+  };
+  if (!SOCIAL_KEY) return base;
+  try {
+    const r = await fetch(`${SOCIAL_URL}/rest/v1/evolution_daily?select=network,date&order=date.desc.nullslast&limit=2000`,
+      { headers: { apikey: SOCIAL_KEY, Authorization: `Bearer ${SOCIAL_KEY}` } });
+    if (!r.ok) return base;
+    const rows = await r.json();
+    const maxByNet = {};
+    for (const x of rows) { if (x && x.date && (!maxByNet[x.network] || x.date > maxByNet[x.network])) maxByNet[x.network] = x.date; }
+    const nets = Object.keys(maxByNet);
+    if (!nets.length) return base;
+    let lag = nets[0];
+    for (const n of nets) if (maxByNet[n] < maxByNet[lag]) lag = n;
+    const lagDate = maxByNet[lag];
+    const ageMin = Math.round((Date.now() - new Date(lagDate + 'T00:00:00Z').getTime()) / 60000);
+    return {
+      ...base, last_data_at: lagDate, data_age_min: ageMin,
+      data_status: ageMin > SOCIAL_WINDOW_MIN ? 'STALE' : 'fresh',
+      note: `oldest network: ${lag} (${lagDate})`,
+    };
+  } catch { return base; }
+}
+
 export default async function handler(req, res) {
   if (!SB || !KEY) {
     return res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set' });
+  }
+  // Require a valid login session before returning any data (names are included).
+  if (!validSession(req)) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(401).json({ error: 'unauthorized' });
   }
   try {
     const [
@@ -107,10 +178,12 @@ export default async function handler(req, res) {
       if (more.length < 1000) break;
     }
 
-    const [social, reels] = await Promise.all([
+    const [social, reels, socialHealth] = await Promise.all([
       socialView('v_social_channels'),
       socialView('v_reels_summary'),
+      socialHealthRow(),
     ]);
+    const healthRows = Array.isArray(health) ? health.concat([socialHealth]) : health;
 
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     res.status(200).json({
@@ -143,7 +216,7 @@ export default async function handler(req, res) {
       courses: courses,
       tools: tools,
       upcoming_events: coEvents,
-      health: health,
+      health: healthRows,
       workflows: workflows,
       member_roster: memberRows,
     });

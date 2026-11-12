@@ -80,11 +80,22 @@
     <h1>Utah REIA - Analytics</h1>
     <span class="live"><span class="dot"></span>LIVE</span>
     <button class="rf" id="refresh">↻ Refresh</button>
+    <button class="rf" id="logout" style="display:none">Log out</button>
   </header>
   <div class="sub" id="status">Loading live data from Supabase…</div>
 
   <div class="kpis" id="kpis"></div>
   <div id="panels"></div>
+</div>
+
+<div id="login" style="display:none;position:fixed;inset:0;z-index:1000;background:var(--bg,#0f1115);display:none;align-items:center;justify-content:center;padding:16px">
+  <form id="loginForm" style="width:100%;max-width:340px;background:var(--card,#1a1d24);border:1px solid var(--line,#2a2f3a);border-radius:14px;padding:22px">
+    <div style="font-weight:700;font-size:18px;margin-bottom:4px">Utah REIA - Analytics</div>
+    <div style="color:var(--mut,#8a93a6);font-size:13.5px;margin-bottom:16px">Enter the dashboard password to continue.</div>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid var(--line,#2a2f3a);background:var(--bg,#0f1115);color:inherit;font-size:15px">
+    <div id="loginErr" style="color:var(--bad,#e5534b);font-size:13px;min-height:18px;margin:8px 2px 0"></div>
+    <button type="submit" id="loginBtn" style="width:100%;margin-top:6px;padding:11px;border:0;border-radius:9px;background:var(--accent,#3b82f6);color:#fff;font-size:15px;font-weight:600;cursor:pointer">Log in</button>
+  </form>
 </div>
 
 <script>
@@ -333,17 +344,24 @@ function renderGA4Pages(host){
 }
 function renderHealth(host){
   var rows=DATA.health||[]; if(!rows.length)return;
-  var stale=rows.filter(function(r){return r.status==="STALE";}).length;
+  function bad(r){ return r.status==="STALE"||r.data_status==="STALE"; }
+  function ageTxt(m){ return m==null?"-":(m<60?(m+"m"):(m<2880?((Math.round(m/60*10)/10)+"h"):(Math.round(m/1440)+"d"))); }
+  var stale=rows.filter(bad);
   var w=el("div","panel"); w.appendChild(el("h3",null,"Data health"));
-  w.appendChild(el("div","note", stale? ("⚠ "+stale+" feed(s) STALE - a sync may have stopped; check it.") : "All data feeds are updating on schedule."));
+  w.appendChild(el("div","note", stale.length? ("⚠ "+stale.length+" feed(s) need attention: "+stale.map(function(r){return r.feed;}).join(", ")+".") : "All feeds are running and producing fresh data."));
   rows.forEach(function(r){
-    var c = r.status==="STALE"?"var(--bad)":(r.status==="ok"?"var(--accent)":"var(--mut)");
-    var age = r.age_min==null?"not run yet":(r.age_min<60? (r.age_min+"m ago"):((Math.round(r.age_min/60*10)/10)+"h ago"));
+    var isbad=bad(r);
+    var c = isbad?"var(--bad)":((r.status==="ok"||r.data_status==="fresh")?"var(--accent)":"var(--mut)");
+    var parts=[];
+    if(r.status && r.status!=="n/a") parts.push("sync "+r.status+" ("+ageTxt(r.age_min)+")");
+    if(r.data_status && r.data_status!=="n/a") parts.push("data "+r.data_status+" ("+ageTxt(r.data_age_min)+")");
     var line=el("div"); line.style.cssText="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px";
     var dot=el("span"); dot.style.cssText="width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:"+c;
     var name=el("span",null,r.feed); name.style.fontWeight="600";
-    var meta=el("span",null,r.status+" · last ran "+age); meta.style.cssText="color:var(--mut);margin-left:auto;text-align:right";
-    line.appendChild(dot); line.appendChild(name); line.appendChild(meta); w.appendChild(line);
+    var meta=el("span",null,parts.join(" · ")); meta.style.cssText="color:var(--mut);margin-left:auto;text-align:right";
+    line.appendChild(dot); line.appendChild(name); line.appendChild(meta);
+    if(r.note){ var nt=el("span",null,r.note); nt.style.cssText="width:100%;color:var(--mut);font-size:12px;margin-left:17px"; line.appendChild(nt); }
+    w.appendChild(line);
   });
   host.appendChild(w);
 }
@@ -473,7 +491,7 @@ function renderInactiveMembers(host){
   host.appendChild(w);
 }
 var PANEL_EXPLAIN = {
-  "Data health": "Live check that each data pipeline is still running. Heartbeat = did the SYNC run recently (from pg_cron run history / each sync’s last-run time), NOT when data last changed - so a quiet feed with no new rows won’t false-alarm. Green = on schedule, red = STALE (a sync stopped - investigate), grey = not run yet. A GitHub Action re-checks this every few hours and emails us if anything goes red.",
+  "Data health": "Live check on every data pipeline, with TWO signals per feed. “sync” = did the job run recently (from pg_cron history / last-run time). “data” = is the newest data row recent (GHL messages within 1 day, GA4 within 2 days, social within 3 days); high-volume feeds only, so a quiet low-volume feed with no new rows shows no data window and won’t false-alarm. A feed turns red if EITHER signal is stale - which is how a feed that “runs” but silently stops producing data (e.g. a social pull that quietly died) gets caught. Green = healthy, grey = not applicable / not yet run. A GitHub Action re-checks every few hours and emails us if anything goes red.",
   "Conversions - leads to members": "A “member” = any contact with a membership status. “Ever” counts everyone who ever joined (including lapsed); “Active” only current paying members. Picking a period scopes to leads that FIRST entered during it (a cohort), then shows how many of that cohort converted. Most leads have no captured source, so “(unknown)” is large - better UTM/source capture shrinks it.",
   "Weekly scorecard": "One row per week (last 26). New-lead counts use the contact-creation date, so recent weeks are accurate but older weeks can lump onto the initial data-load date. Engaged = did something active that week; new members = joined that week. Read the trend, not any single week.",
   "Website traffic (GA4)": "Website sessions grouped by GA4’s default channel (Direct, Organic Search, Organic Social, Referral, Email, Paid…). Pulled daily; GA4 finalizes numbers 1-2 days late, so the latest day or two can still rise. Pick a period to scope the totals.",
@@ -545,14 +563,21 @@ function renderAll(){
   addPanelExplainers();
 }
 
+var loginEl=document.getElementById("login");
+var logoutBtn=document.getElementById("logout");
+function showLogin(){ loginEl.style.display="flex"; logoutBtn.style.display="none"; var pw=document.getElementById("pw"); if(pw){pw.value="";pw.focus();} }
+function hideLogin(){ loginEl.style.display="none"; logoutBtn.style.display=""; }
+
 async function load(){
   var st=document.getElementById("status");
   st.textContent="Refreshing…"; st.className="sub";
   try{
-    var r=await fetch(API,{cache:"no-store"});
+    var r=await fetch(API,{cache:"no-store",credentials:"same-origin"});
+    if(r.status===401){ st.className="sub"; st.textContent="Sign in to view the dashboard."; showLogin(); return; }
     if(!r.ok) throw new Error("HTTP "+r.status);
     DATA=await r.json();
     if(DATA.error) throw new Error(DATA.error);
+    hideLogin();
     renderAll();
     var t=new Date(DATA.generated_at||Date.now());
     st.className="sub"; st.textContent="Live from Supabase · updated "+t.toLocaleString();
@@ -560,9 +585,29 @@ async function load(){
     st.className="sub err"; st.textContent="Could not load data: "+e.message;
   }
 }
+
+document.getElementById("loginForm").addEventListener("submit",async function(ev){
+  ev.preventDefault();
+  var btn=document.getElementById("loginBtn"), err=document.getElementById("loginErr"), pw=document.getElementById("pw");
+  err.textContent=""; btn.disabled=true; btn.textContent="Signing in…";
+  try{
+    var r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({password:pw.value})});
+    if(r.ok){ pw.value=""; hideLogin(); await load(); }
+    else if(r.status===429){ err.textContent="Too many attempts. Wait a few minutes and try again."; }
+    else{ err.textContent="Incorrect password."; }
+  }catch(e){ err.textContent="Could not reach the server. Try again."; }
+  btn.disabled=false; btn.textContent="Log in";
+});
+
+logoutBtn.addEventListener("click",async function(){
+  try{ await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({action:"logout"})}); }catch(e){}
+  DATA=null; document.getElementById("panels").innerHTML=""; document.getElementById("kpis").innerHTML="";
+  showLogin();
+});
+
 document.getElementById("refresh").onclick=load;
 load();
-setInterval(load, 5*60*1000); // auto-refresh every 5 min
+setInterval(load, 5*60*1000); // auto-refresh every 5 min (silently no-ops into the login screen if the session has expired)
 </script>
 </body>
 </html>
