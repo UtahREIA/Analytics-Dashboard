@@ -457,7 +457,7 @@ function renderActiveMembers(host){
 }
 function renderInactiveMembers(host){
   var rows=(DATA.member_roster||[]).filter(function(r){
-    return !/test/i.test(r.full_name||"") && (r.status==="Inactive"||r.status==="Cancel Membership");
+    return !/test/i.test(r.full_name||"") && (r.status==="Inactive"||r.status==="Cancel Membership"||r.status==="Renewal Pending");
   }).sort(byDateDesc("inactive_since"));
   if(!rows.length)return;
   var withDate=rows.filter(function(r){return r.inactive_since;}).length;
@@ -491,7 +491,7 @@ var PANEL_EXPLAIN = {
   "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch - mostly internal test calls - so treat it as a baseline.",
   "Membership by type": "Active + inactive members grouped by membership type (Individual, Couple, Community…). “(unspecified)” = has a status but no type set.",
   "Active members": "Members whose GHL status is Active, by name with the date they became active. Active memberships don’t expire (per Chris) - a member stays active until they choose to cancel, at which point they become Inactive. So there’s no expiration date here. Search by name. Names only, no contact details.",
-  "Inactive members": "Members whose status is Inactive (cancellations folded in here too), by name and the date they went inactive - from GHL. Search by name. Names only, no contact details.",
+  "Inactive members": "Members who are no longer active - GHL status Inactive, plus Cancel Membership and Renewal Pending folded in here - by name and the date they went inactive (blank if GHL has none on file). Search by name. Names only, no contact details.",
   "Top campaigns by members": "Campaigns ranked by how many MEMBERS they produced (not just leads) - the real signal of which campaigns drive conversions. “(none)/(unknown)” dominates because source capture is sparse.",
   "Vendor partners": "Vendor / service-provider directory from a GHL custom object (ghl_vendor_resources), kept current by a cron. “Specialties” is what they do; “Active” flags whether they’re currently listed. This is the pool Lani and the routing matrix draw from.",
   "Educators & mentors": "Educators and mentors catalog (ghl_educators_mentors), tagged by the topics and investor levels they cover. Cron-synced from GHL.",
