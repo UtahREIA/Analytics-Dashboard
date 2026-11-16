@@ -37,6 +37,16 @@
   .panel h3{margin:0 0 4px;font-size:16px}
   .section{font-size:12.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--accent2);margin:30px 2px 0;padding-bottom:7px;border-bottom:1px solid var(--line)}
   #panels > .section:first-child{margin-top:10px}
+  .cmpbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:8px 0 2px}
+  .cmpbar .cmplab{font-weight:700;font-size:13px}
+  .cmpbar .cmpnote{color:var(--mut);font-size:12px}
+  .cmpbar .tabs{margin:0}
+  .cmpbar .cmpcustom{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12.5px}
+  .cmpbar .cmpcustom .pick{margin:0}
+  .mini .delta{display:block;font-size:11.5px;font-weight:600;margin:1px 0}
+  .mini .delta.up{color:var(--accent)}
+  .mini .delta.down{color:var(--bad)}
+  .mini .delta.flat{color:var(--mut)}
   .note{color:var(--mut);font-size:12.5px;margin:0 0 12px}
   .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
   .tab{background:var(--panel2);color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12.5px;cursor:pointer}
@@ -147,6 +157,57 @@ function table(cols, rows, keys){
   var tw=el("div","tw"); tw.appendChild(t); return tw;
 }
 
+/* ---- Global period comparison (current window vs previous equal window) ---- */
+var CMP={kind:"30d",from:null,to:null};
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function addDaysISO(iso,n){ var d=new Date(iso+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function cmpRange(){
+  var curFrom,curTo;
+  if(CMP.kind==="custom"&&CMP.from&&CMP.to){ curFrom=(CMP.from<=CMP.to?CMP.from:CMP.to); curTo=(CMP.from<=CMP.to?CMP.to:CMP.from); }
+  else { var N={"7d":7,"30d":30,"90d":90,"12mo":365}[CMP.kind]||30; curTo=todayISO(); curFrom=addDaysISO(curTo,-(N-1)); }
+  var len=Math.max(0,Math.round((new Date(curTo+"T00:00:00Z")-new Date(curFrom+"T00:00:00Z"))/86400000));
+  var prevTo=addDaysISO(curFrom,-1), prevFrom=addDaysISO(prevTo,-len);
+  return {curFrom:curFrom,curTo:curTo,prevFrom:prevFrom,prevTo:prevTo};
+}
+function cmpWinLabel(){ if(CMP.kind==="custom")return "period"; return {"7d":"7 days","30d":"30 days","90d":"90 days","12mo":"12 months"}[CMP.kind]||"period"; }
+function inCur(ds){ var r=cmpRange(),d=(ds||"").slice(0,10); return d>=r.curFrom&&d<=r.curTo; }
+function deltaEl(cur,prev){
+  var cls="flat",txt="–";
+  if(prev>0){ var p=Math.round((cur-prev)/prev*1000)/10; cls=p>0?"up":(p<0?"down":"flat"); txt=(p>0?"▲ ":(p<0?"▼ ":""))+Math.abs(p)+"%"; }
+  else if(cur>0){ cls="up"; txt="▲ new"; }
+  var e=el("span","delta "+cls,txt); e.title="vs previous "+cmpWinLabel(); return e;
+}
+// comparison stat strip: for each metric {label, vf, fmt}, sum vf over the current vs previous window.
+function cmpStrip(rows,dk,metrics){
+  var r=cmpRange(), mini=el("div","mini cmp");
+  metrics.forEach(function(m){
+    var cur=0,prev=0;
+    (rows||[]).forEach(function(x){ var d=(x[dk]||"").slice(0,10); if(!d)return; var v=m.vf?(+m.vf(x)||0):1;
+      if(d>=r.curFrom&&d<=r.curTo)cur+=v; else if(d>=r.prevFrom&&d<=r.prevTo)prev+=v; });
+    var f=m.fmt||fmt, d=el("div"); d.appendChild(el("b",null,f(cur))); d.appendChild(deltaEl(cur,prev)); d.appendChild(el("span",null,m.label)); mini.appendChild(d);
+  });
+  return mini;
+}
+function renderCmpControl(host){
+  var bar=el("div","cmpbar"); bar.appendChild(el("span","cmplab","Compare period:"));
+  var tabs=el("div","tabs");
+  [["7d","Last 7 days"],["30d","Last 30 days"],["90d","Last 90 days"],["12mo","Last 12 months"],["custom","Custom"]].forEach(function(o){
+    var b=el("button","tab",o[1]); b.setAttribute("aria-selected",o[0]===CMP.kind);
+    b.onclick=function(){ CMP.kind=o[0]; if(o[0]!=="custom"){CMP.from=null;CMP.to=null;} renderAll(); };
+    tabs.appendChild(b);
+  });
+  bar.appendChild(tabs);
+  if(CMP.kind==="custom"){
+    var fr=el("input"); fr.type="date"; fr.className="pick"; fr.value=CMP.from||addDaysISO(todayISO(),-29);
+    var to=el("input"); to.type="date"; to.className="pick"; to.value=CMP.to||todayISO();
+    fr.onchange=function(){CMP.from=fr.value||null; if(CMP.from&&CMP.to)renderAll();};
+    to.onchange=function(){CMP.to=to.value||null; if(CMP.from&&CMP.to)renderAll();};
+    var cw=el("span","cmpcustom"); cw.appendChild(fr); cw.appendChild(document.createTextNode("to")); cw.appendChild(to); bar.appendChild(cw);
+  }
+  bar.appendChild(el("span","cmpnote", CMP.kind==="custom"?"selected range vs the equal span just before it":("this period vs the previous "+cmpWinLabel())));
+  host.appendChild(bar);
+}
+
 function renderKpis(){
   var f=DATA.funnel||{}, d=DATA.days||{}, l=DATA.lani||{};
   var tiles=[
@@ -177,28 +238,21 @@ function renderKpis(){
   });
 }
 
-var convFilter;
 function renderConversions(host){
   var wrap=el("div","panel");
   wrap.appendChild(el("h3",null,"Conversions - leads to members"));
-  wrap.appendChild(el("div","note","Member = has a membership status. “Ever” ever joined; “Active” current. Pick a period to scope to leads that entered during it. Split by GHL lead source."));
-  var fh=el("div"); wrap.appendChild(fh);
-  var mini=el("div","mini"); wrap.appendChild(mini);
-  var tbl=el("div","scroll"); wrap.appendChild(tbl);
-  host.appendChild(wrap);
+  wrap.appendChild(el("div","note","Leads that FIRST entered in the selected period, and how many became members. “Ever” = ever joined; “Active” = current. Split by GHL lead source below."));
   var all=DATA.conversion_contacts||[];
-  convFilter=makeFilter(fh,function(){draw();});
-  convFilter.setData(all.map(function(r){return r.date;})); convFilter.render();
-  function draw(){
-    var rows=all.filter(function(r){return convFilter.pred(r.date);});
-    var leads=rows.length,ev=0,ac=0,by={};
-    rows.forEach(function(r){ ev+=r.ever;ac+=r.active; var s=r.source||"(unknown)"; var g=by[s]||(by[s]={source:s,leads:0,members:0,active:0}); g.leads++;g.members+=r.ever;g.active+=r.active; });
-    var eP=leads?Math.round(ev/leads*1000)/10:0, aP=leads?Math.round(ac/leads*1000)/10:0;
-    mini.innerHTML=""; [[fmt(leads),"Leads"],[fmt(ev),"Ever members"],[fmt(ac),"Active members"],[eP+"%","Ever %"],[aP+"%","Active %"]].forEach(function(p){ var d=el("div"); d.appendChild(el("b",null,p[0])); d.appendChild(el("span",null,p[1])); mini.appendChild(d); });
-    var list=Object.keys(by).map(function(k){var g=by[k];g.conv=g.leads?Math.round(g.members/g.leads*1000)/10:0;return g;}).sort(function(a,b){return b.members-a.members||b.leads-a.leads;});
-    tbl.innerHTML=""; tbl.appendChild(table(["Source","Leads","Members","Active","Conv %"],list,[{f:"source"},{f:"leads",n:1,fn:function(v){return fmt(v);}},{f:"members",n:1,fn:function(v){return fmt(v);}},{f:"active",n:1,fn:function(v){return fmt(v);}},{f:"conv",n:1,fn:function(v){return v+"%";}}]));
-  }
-  draw();
+  wrap.appendChild(cmpStrip(all,"date",[
+    {label:"Leads",vf:null},
+    {label:"Ever members",vf:function(r){return +r.ever||0;}},
+    {label:"Active members",vf:function(r){return +r.active||0;}}
+  ]));
+  var rows=all.filter(function(r){return inCur(r.date);});
+  var by={}; rows.forEach(function(r){ var s=r.source||"(unknown)"; var g=by[s]||(by[s]={source:s,leads:0,members:0,active:0}); g.leads++;g.members+=r.ever;g.active+=r.active; });
+  var list=Object.keys(by).map(function(k){var g=by[k];g.conv=g.leads?Math.round(g.members/g.leads*1000)/10:0;return g;}).sort(function(a,b){return b.members-a.members||b.leads-a.leads;});
+  var tbl=el("div","scroll"); tbl.appendChild(table(["Source","Leads","Members","Active","Conv %"],list,[{f:"source"},{f:"leads",n:1,fn:function(v){return fmt(v);}},{f:"members",n:1,fn:function(v){return fmt(v);}},{f:"active",n:1,fn:function(v){return fmt(v);}},{f:"conv",n:1,fn:function(v){return v+"%";}}]));
+  wrap.appendChild(tbl); host.appendChild(wrap);
 }
 
 function renderWeekly(host){
@@ -245,6 +299,7 @@ var evSel=null;
 function renderEvents(host){
   var w=el("div","panel"); w.appendChild(el("h3",null,"Event attendance"));
   w.appendChild(el("div","note","Who attended each event (from event_attendance). Pick an event to see attendees."));
+  w.appendChild(cmpStrip(DATA.event_roster||[],"event_date",[{label:"Attendances",vf:null}]));
   var roster=DATA.event_roster||[];
   var byEvent={}; roster.forEach(function(r){ var k=r.event_name||"(unnamed)"; (byEvent[k]||(byEvent[k]={name:k,date:r.event_date,people:0,who:[]})); byEvent[k].people++; byEvent[k].who.push(r.full_name||"-"); if(r.event_date&&(!byEvent[k].date||r.event_date>byEvent[k].date))byEvent[k].date=r.event_date; });
   var events=Object.keys(byEvent).map(function(k){return byEvent[k];}).sort(function(a,b){return (b.date||"").localeCompare(a.date||"");});
@@ -264,43 +319,41 @@ function renderEvents(host){
 
 function mk(v,l){ var d=el("div"); d.appendChild(el("b",null,v)); d.appendChild(el("span",null,l)); return d; }
 // a panel with a Year/Month/Week/Day filter over `rows` by date field `dk`; body = fn(container, filteredRows)
-function periodPanel(host,title,note,rows,dk,body){
+// Period panel: shows the comparison strip (current vs previous window) from `metrics`,
+// then the detail `body` scoped to the current window. Driven by the global CMP control.
+function periodPanel(host,title,note,rows,dk,body,metrics){
   var w=el("div","panel"); w.appendChild(el("h3",null,title)); if(note)w.appendChild(el("div","note",note));
-  var fh=el("div"); w.appendChild(fh); var bd=el("div"); w.appendChild(bd); host.appendChild(w);
-  var f=makeFilter(fh,function(){draw();}); f.setData(rows.map(function(r){return r[dk];})); f.render();
-  function draw(){ bd.innerHTML=""; body(bd, rows.filter(function(r){return f.pred(r[dk]);})); }
-  draw();
+  if(metrics&&metrics.length) w.appendChild(cmpStrip(rows,dk,metrics));
+  var bd=el("div"); w.appendChild(bd); host.appendChild(w);
+  body(bd, (rows||[]).filter(function(r){return inCur(r[dk]);}));
 }
 function renderGA4(host){
-  periodPanel(host,"Website traffic (GA4)","Sessions by channel from ga4_daily. Pick a period.",(DATA.ga4||[]),"date",function(b,rows){
-    var tot=0,eng=0,nu=0,by={};
-    rows.forEach(function(r){ tot+=+r.sessions||0; eng+=+r.engaged_sessions||0; nu+=+r.new_users||0; var c=r.channel||"(other)"; by[c]=(by[c]||0)+(+r.sessions||0); });
-    var mini=el("div","mini"); [mk(fmt(tot),"Sessions"),mk(fmt(eng),"Engaged"),mk(tot?(Math.round(eng/tot*1000)/10+"%"):"-","Engaged rate"),mk(fmt(nu),"New users")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
+  periodPanel(host,"Website traffic (GA4)","Sessions by channel from ga4_daily (GA4 finalizes 1-2 days late).",(DATA.ga4||[]),"date",function(b,rows){
+    var by={}; rows.forEach(function(r){ var c=r.channel||"(other)"; by[c]=(by[c]||0)+(+r.sessions||0); });
     var list=Object.keys(by).map(function(k){return {channel:k,sessions:by[k]};}).sort(function(a,b){return b.sessions-a.sessions;});
     var s=el("div","scroll"); s.appendChild(table(["Channel","Sessions"],list,[{f:"channel"},{f:"sessions",n:1,fn:function(v){return fmt(v);}}])); b.appendChild(s);
-  });
+  },[{label:"Sessions",vf:function(r){return +r.sessions||0;}},{label:"Engaged",vf:function(r){return +r.engaged_sessions||0;}},{label:"New users",vf:function(r){return +r.new_users||0;}}]);
 }
 function renderMessages(host){
-  periodPanel(host,"Texts (SMS)","Daily SMS from ghl_message_logs (last 90 days). Pick a period.",(DATA.sms||[]),"date",function(b,rows){
-    var inb=0,out=0,del=0,fail=0;
-    rows.forEach(function(r){ var n=+r.n||0; if(r.direction==="inbound")inb+=n; else out+=n; if(r.status==="delivered")del+=n; if(r.status==="failed"||r.status==="undelivered")fail+=n; });
-    var mini=el("div","mini"); [mk(fmt(inb+out),"Total"),mk(fmt(out),"Outbound"),mk(fmt(inb),"Inbound"),mk(fmt(del),"Delivered"),mk(fmt(fail),"Failed")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
-  });
+  periodPanel(host,"Texts (SMS)","SMS from ghl_message_logs, by direction and delivery status.",(DATA.sms||[]),"date",function(){},[
+    {label:"Total",vf:function(r){return +r.n||0;}},
+    {label:"Outbound",vf:function(r){return r.direction!=="inbound"?(+r.n||0):0;}},
+    {label:"Inbound",vf:function(r){return r.direction==="inbound"?(+r.n||0):0;}},
+    {label:"Delivered",vf:function(r){return r.status==="delivered"?(+r.n||0):0;}},
+    {label:"Failed",vf:function(r){return (r.status==="failed"||r.status==="undelivered")?(+r.n||0):0;}}
+  ]);
 }
 function renderAppointments(host){
   periodPanel(host,"Appointments","GHL calendar bookings (by appointment date). Test bookings excluded.",(DATA.appointments||[]),"date",function(b,rows){
-    var by={}; rows.forEach(function(r){ var s=r.status||"(none)"; by[s]=(by[s]||0)+1; });
-    var mini=el("div","mini"); mini.appendChild(mk(fmt(rows.length),"Bookings")); Object.keys(by).forEach(function(k){mini.appendChild(mk(fmt(by[k]),k));}); b.appendChild(mini);
     var s=el("div","scroll"); s.appendChild(table(["Date","Status","Calendar","Contact"],rows.slice(0,200),[{f:"date"},{f:"status"},{f:"calendar"},{f:"contact"}])); b.appendChild(s);
-  });
+  },[{label:"Bookings",vf:null}]);
 }
 function renderOpportunities(host){
   periodPanel(host,"Opportunities","GHL pipeline deals (by created date). Test records excluded.",(DATA.opportunities||[]),"date",function(b,rows){
-    var val=0,by={}; rows.forEach(function(r){ val+=+r.value||0; var k=(r.pipeline||"(none)")+" · "+(r.status||""); by[k]=(by[k]||0)+1; });
-    var mini=el("div","mini"); mini.appendChild(mk(fmt(rows.length),"Deals")); mini.appendChild(mk("$"+fmt(Math.round(val)),"Total value")); b.appendChild(mini);
+    var by={}; rows.forEach(function(r){ var k=(r.pipeline||"(none)")+" · "+(r.status||""); by[k]=(by[k]||0)+1; });
     var list=Object.keys(by).map(function(k){return {k:k,n:by[k]};}).sort(function(a,b){return b.n-a.n;});
     var s=el("div","scroll"); s.appendChild(table(["Pipeline · status","Deals"],list,[{f:"k"},{f:"n",n:1}])); b.appendChild(s);
-  });
+  },[{label:"Deals",vf:null},{label:"Value",vf:function(r){return +r.value||0;},fmt:function(v){return "$"+fmt(Math.round(v));}}]);
 }
 function renderEmails(host){
   var rows=(DATA.email_campaigns||[]).map(function(c){ return {
@@ -308,13 +361,10 @@ function renderEmails(host){
     sent:+c.sent||0, delivered:+c.delivered||0, failed:+c.failed||0, delivered_pct:c.delivered_pct
   };}).filter(function(r){return r.date;});
   if(!rows.length)return;
-  periodPanel(host,"Emails (GHL campaigns)","Sent / delivered / failed per completed campaign (opens & clicks aren’t in GHL’s API). Pick a period - scopes by the campaign’s send date.",rows,"date",function(b,sub){
-    var sent=0,del=0,fail=0; sub.forEach(function(r){ sent+=r.sent; del+=r.delivered; fail+=r.failed; });
-    var dp=sent?Math.round(del/sent*1000)/10:0;
-    var mini=el("div","mini"); [mk(fmt(sub.length),"Campaigns"),mk(fmt(sent),"Sent"),mk(fmt(del),"Delivered"),mk(dp+"%","Delivered %"),mk(fmt(fail),"Failed")].forEach(function(d){mini.appendChild(d);}); b.appendChild(mini);
+  periodPanel(host,"Emails (GHL campaigns)","Sent / delivered / failed per completed campaign, by send date (opens & clicks aren’t in GHL’s API).",rows,"date",function(b,sub){
     var list=sub.slice().sort(function(a,b){return b.sent-a.sent;});
     var s=el("div","scroll"); s.appendChild(table(["Campaign","Sent","Delivered","%","Failed"],list,[{f:"name"},{f:"sent",n:1,fn:function(v){return fmt(v);}},{f:"delivered",n:1,fn:function(v){return fmt(v);}},{f:"delivered_pct",n:1,fn:function(v){return pct(v);}},{f:"failed",n:1}])); b.appendChild(s);
-  });
+  },[{label:"Campaigns",vf:null},{label:"Sent",vf:function(r){return +r.sent||0;}},{label:"Delivered",vf:function(r){return +r.delivered||0;}},{label:"Failed",vf:function(r){return +r.failed||0;}}]);
 }
 function renderUTMs(host){
   var w=el("div","panel"); w.appendChild(el("h3",null,"UTMs & sources"));
@@ -338,11 +388,11 @@ function renderReels(host){
 }
 function renderGA4Pages(host){
   var rows=DATA.ga4_pages||[]; if(!rows.length)return;
-  periodPanel(host,"Top pages","Most-viewed pages from GA4 (ga4_page_daily). Pick a period; views and sessions sum across it.",rows,"date",function(b,sub){
+  periodPanel(host,"Top pages","Most-viewed pages from GA4 (ga4_page_daily).",rows,"date",function(b,sub){
     var by={}; sub.forEach(function(r){ var p=r.page_path||"(not set)"; var g=by[p]||(by[p]={page_path:p,views:0,sessions:0}); g.views+=+r.views||0; g.sessions+=+r.sessions||0; });
     var list=Object.keys(by).map(function(k){return by[k];}).sort(function(a,b){return b.views-a.views;}).slice(0,50);
     var s=el("div","scroll"); s.appendChild(table(["Page","Views","Sessions"],list,[{f:"page_path"},{f:"views",n:1,fn:function(v){return fmt(v);}},{f:"sessions",n:1,fn:function(v){return fmt(v);}}])); b.appendChild(s);
-  });
+  },[{label:"Views",vf:function(r){return +r.views||0;}},{label:"Sessions",vf:function(r){return +r.sessions||0;}}]);
 }
 function renderHealth(host){
   var rows=DATA.health||[]; if(!rows.length)return;
@@ -447,6 +497,7 @@ function renderActiveMembers(host){
   var w=el("div","panel"); w.appendChild(el("h3",null,"Active members"));
   w.appendChild(el("div","note","Current active members and the date they became active. Active memberships don’t expire - a member stays active until they choose to cancel, at which point they move to Inactive. From GHL (contacts). Names only."));
   var mini=el("div","mini"); [mk(fmt(rows.length),"Active")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  w.appendChild(cmpStrip(rows,"active_since",[{label:"New in period",vf:null}]));
   rosterSearch(w,rows,function(body,list){
     var s=el("div","scroll"); s.appendChild(table(["Name","Active since"],list,[
       {f:"full_name"},
@@ -464,6 +515,7 @@ function renderInactiveMembers(host){
   var w=el("div","panel"); w.appendChild(el("h3",null,"Inactive members"));
   w.appendChild(el("div","note",fmt(rows.length)+" inactive, with the date their membership went inactive ("+fmt(withDate)+" have a date on file). From GHL (contacts). Names only."));
   var mini=el("div","mini"); [mk(fmt(rows.length),"Inactive"),mk(fmt(withDate),"With inactive date")].forEach(function(d){mini.appendChild(d);}); w.appendChild(mini);
+  w.appendChild(cmpStrip(rows,"inactive_since",[{label:"Went inactive in period",vf:null}]));
   rosterSearch(w,rows,function(body,list){
     var s=el("div","scroll"); s.appendChild(table(["Name","Inactive since"],list,[
       {f:"full_name"},
@@ -526,6 +578,7 @@ function addSection(p, title, fns){
 function renderAll(){
   renderKpis();
   var p=document.getElementById("panels"); p.innerHTML="";
+  renderCmpControl(p);
   addSection(p,"Data health",[renderHealth]);
   addSection(p,"Leads & conversion",[renderConversions,renderWeekly,renderLeadsByWeek,renderUTMs,renderTopCampaigns]);
   addSection(p,"Members",[renderActiveMembers,renderInactiveMembers,renderMembershipByType]);
