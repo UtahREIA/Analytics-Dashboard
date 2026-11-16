@@ -35,6 +35,8 @@
   .panel > .kpi-explain{margin-top:0;margin-bottom:10px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
   .panel h3{margin:0 0 4px;font-size:16px}
+  .section{font-size:12.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--accent2);margin:30px 2px 0;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  #panels > .section:first-child{margin-top:10px}
   .note{color:var(--mut);font-size:12.5px;margin:0 0 12px}
   .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
   .tab{background:var(--panel2);color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12.5px;cursor:pointer}
@@ -220,23 +222,23 @@ function renderLeadsByWeek(host){
   var s=el("div","scroll"); s.appendChild(table(cols,data,keys)); w.appendChild(s); host.appendChild(w);
 }
 
-function renderTwoCol(host){
-  var g=el("div","grid2");
-  // calculators
+function renderCalculators(host){
   var c=el("div","panel"); c.appendChild(el("h3",null,"Calculator usage")); c.appendChild(el("div","note","Unlocks per tool and member share among users."));
-  c.appendChild(table(["Tool","Uses","Member %"],DATA.calculators||[],[{f:"tool"},{f:"uses",n:1},{f:"member_share_pct",n:1,fn:function(v){return pct(v);}}])); g.appendChild(c);
-  // lani
+  c.appendChild(table(["Tool","Uses","Member %"],DATA.calculators||[],[{f:"tool"},{f:"uses",n:1},{f:"member_share_pct",n:1,fn:function(v){return pct(v);}}])); host.appendChild(c);
+}
+function renderLani(host){
   var l=el("div","panel"); l.appendChild(el("h3",null,"Lani calls")); var la=DATA.lani||{};
   var lm=el("div","mini"); [[fmt(la.calls),"Calls"],[pct(la.match_rate_pct),"Match rate"],[fmt(la.no_match),"No match"]].forEach(function(p){var d=el("div");d.appendChild(el("b",null,p[0]));d.appendChild(el("span",null,p[1]));lm.appendChild(d);}); l.appendChild(lm);
   l.appendChild(el("div","note","What blocked the callers Lani couldn't match:"));
-  l.appendChild(table(["Blocker","Calls"],DATA.lani_needs||[],[{f:"blocker"},{f:"calls",n:1}])); g.appendChild(l);
-  // membership by type
+  l.appendChild(table(["Blocker","Calls"],DATA.lani_needs||[],[{f:"blocker"},{f:"calls",n:1}])); host.appendChild(l);
+}
+function renderMembershipByType(host){
   var m=el("div","panel"); m.appendChild(el("h3",null,"Membership by type"));
-  m.appendChild(table(["Type","Members"],(DATA.membership_by_type||[]),[{f:(DATA.membership_by_type&&DATA.membership_by_type[0]&&("membership_type" in DATA.membership_by_type[0])?"membership_type":"type")},{f:(DATA.membership_by_type&&DATA.membership_by_type[0]&&("members" in DATA.membership_by_type[0])?"members":"count"),n:1,fn:function(v){return fmt(v);}}])); g.appendChild(m);
-  // top campaigns
+  m.appendChild(table(["Type","Members"],(DATA.membership_by_type||[]),[{f:(DATA.membership_by_type&&DATA.membership_by_type[0]&&("membership_type" in DATA.membership_by_type[0])?"membership_type":"type")},{f:(DATA.membership_by_type&&DATA.membership_by_type[0]&&("members" in DATA.membership_by_type[0])?"members":"count"),n:1,fn:function(v){return fmt(v);}}])); host.appendChild(m);
+}
+function renderTopCampaigns(host){
   var tc=el("div","panel"); tc.appendChild(el("h3",null,"Top campaigns by members"));
-  tc.appendChild(table(["Campaign","Source","Members","Leads"],DATA.campaigns||[],[{f:"campaign"},{f:"source"},{f:"members",n:1},{f:"leads",n:1}])); g.appendChild(tc);
-  host.appendChild(g);
+  tc.appendChild(table(["Campaign","Source","Members","Leads"],DATA.campaigns||[],[{f:"campaign"},{f:"source"},{f:"members",n:1},{f:"leads",n:1}])); host.appendChild(tc);
 }
 
 var evSel=null;
@@ -531,33 +533,29 @@ function addPanelExplainers(){
     h.parentNode.insertBefore(exp, h.nextSibling);
   });
 }
+// Render a titled section: run its panel fns into a temp container, and only if they produced
+// at least one panel, add the section header + the panels (so empty feeds don't leave a lone header).
+function addSection(p, title, fns){
+  var tmp=el("div");
+  fns.forEach(function(fn){ try{ fn(tmp); }catch(e){ console.error(title+" panel error:",e); } });
+  if(!tmp.children.length) return;
+  p.appendChild(el("div","section",title));
+  while(tmp.firstChild) p.appendChild(tmp.firstChild);
+}
 function renderAll(){
   renderKpis();
   var p=document.getElementById("panels"); p.innerHTML="";
-  renderHealth(p);
-  renderConversions(p);
-  renderWeekly(p);
-  renderGA4(p);
-  renderGA4Pages(p);
-  renderLeadsByWeek(p);
-  renderEvents(p);
-  renderMessages(p);
-  renderAppointments(p);
-  renderOpportunities(p);
-  renderSocial(p);
-  renderReels(p);
-  renderEmails(p);
-  renderUTMs(p);
-  renderTwoCol(p);
-  renderActiveMembers(p);
-  renderExpiringMembers(p);
-  renderInactiveMembers(p);
-  renderVendors(p);
-  renderEducators(p);
-  renderCourses(p);
-  renderTools(p);
-  renderUpcomingEvents(p);
-  renderWorkflows(p);
+  addSection(p,"Data health",[renderHealth]);
+  addSection(p,"Leads & conversion",[renderConversions,renderWeekly,renderLeadsByWeek,renderUTMs,renderTopCampaigns]);
+  addSection(p,"Members",[renderActiveMembers,renderExpiringMembers,renderInactiveMembers,renderMembershipByType]);
+  addSection(p,"Website traffic (GA4)",[renderGA4,renderGA4Pages]);
+  addSection(p,"Social media",[renderSocial,renderReels]);
+  addSection(p,"Messaging & sales (GHL)",[renderMessages,renderEmails,renderAppointments,renderOpportunities]);
+  addSection(p,"Events",[renderEvents,renderUpcomingEvents]);
+  addSection(p,"Voice agent (Lani)",[renderLani]);
+  addSection(p,"Tools & calculators",[renderCalculators]);
+  addSection(p,"GHL catalog (custom objects)",[renderVendors,renderEducators,renderCourses,renderTools]);
+  addSection(p,"Automations",[renderWorkflows]);
   addPanelExplainers();
 }
 
