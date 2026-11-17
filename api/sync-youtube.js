@@ -30,6 +30,11 @@
 const YT_CLIENT_ID = process.env.GA4_CLIENT_ID;          // same Google OAuth client as GA4
 const YT_CLIENT_SECRET = process.env.GA4_CLIENT_SECRET;  // same Google OAuth client as GA4
 const YT_REFRESH_TOKEN = process.env.YT_REFRESH_TOKEN;   // minted with the youtube scopes
+// Pin the channel by ID. The Utah REIA channel is a Brand Account, so `mine=true`
+// returns nothing for a personal Google login; an explicit id is reliable. The
+// Data API snapshot works for any token (public stats); the Analytics call still
+// needs the authorized account to manage this channel.
+const YT_CHANNEL_ID = process.env.YT_CHANNEL_ID;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -78,10 +83,15 @@ async function getAccessToken() {
   return json.access_token;
 }
 
-// Data API: the channel(s) the authorized user owns, with snapshot statistics.
+// Data API: the channel snapshot statistics. Pins by id when YT_CHANNEL_ID is set
+// (reliable for Brand Accounts); otherwise falls back to the authorized user's own
+// channel via mine=true.
 async function getChannels(accessToken) {
+  const selector = YT_CHANNEL_ID
+    ? `id=${encodeURIComponent(YT_CHANNEL_ID)}`
+    : 'mine=true';
   const res = await fetchRetry(
-    'https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true&maxResults=50',
+    `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&${selector}&maxResults=50`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!res.ok) throw new Error(`channels.list failed: ${res.status} ${await res.text()}`);
@@ -175,16 +185,12 @@ export default async function handler(req, res) {
     const today = todayISO();
     let dailyWritten = 0;
     let snapWritten = 0;
+    const analyticsErrors = [];
 
     for (const ch of channels) {
-      // Per-day movement (does NOT carry snapshot columns).
-      const daily = await getDailyAnalytics(accessToken, ch.channel_id, days);
-      // Stamp the channel title on daily rows too, so the row is complete even
-      // on days the snapshot upsert does not touch.
-      daily.forEach((d) => { d.channel_title = ch.channel_title; });
-      dailyWritten += await upsert(daily);
-
-      // Snapshot (cumulative totals) onto today's row only (does NOT carry daily columns).
+      // Snapshot (cumulative totals) onto today's row only (does NOT carry daily
+      // columns). This is public data and always works, so do it first and
+      // unconditionally — totals land even if Analytics access is missing.
       snapWritten += await upsert([{
         date: today,
         channel_id: ch.channel_id,
@@ -194,10 +200,23 @@ export default async function handler(req, res) {
         video_count: ch.video_count,
         updated_at: new Date().toISOString(),
       }]);
+
+      // Per-day movement (does NOT carry snapshot columns). Non-fatal: if the
+      // authorized account can't read this channel's analytics, keep the snapshot
+      // and surface the error rather than failing the whole run.
+      try {
+        const daily = await getDailyAnalytics(accessToken, ch.channel_id, days);
+        daily.forEach((d) => { d.channel_title = ch.channel_title; });
+        dailyWritten += await upsert(daily);
+      } catch (e) {
+        analyticsErrors.push(`${ch.channel_id}: ${String(e)}`);
+      }
     }
 
-    console.log(`[sync-youtube] ${JSON.stringify({ full, days, channels: channels.length, dailyWritten, snapWritten })}`);
-    return res.status(200).json({ ok: true, full, days, channels: channels.length, dailyWritten, snapWritten });
+    const out = { ok: true, full, days, channels: channels.length, dailyWritten, snapWritten };
+    if (analyticsErrors.length) out.analyticsErrors = analyticsErrors;
+    console.log(`[sync-youtube] ${JSON.stringify(out)}`);
+    return res.status(200).json(out);
   } catch (err) {
     console.error(`[sync-youtube] error ${String(err)}`);
     return res.status(500).json({ ok: false, error: String(err) });
