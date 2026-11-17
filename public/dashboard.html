@@ -386,6 +386,33 @@ function renderReels(host){
   w.appendChild(table(["Network","Reels","Total views","Avg views","Engagement"],rows,[{f:"network"},{f:"reels",n:1},{f:"total_views",n:1,fn:function(v){return fmt(v);}},{f:"avg_views",n:1,fn:function(v){return fmt(v);}},{f:"total_engagement",n:1,fn:function(v){return fmt(v);}}]));
   host.appendChild(w);
 }
+function renderYouTube(host){
+  var rows=DATA.youtube||[]; if(!rows.length)return;
+  // Snapshot (subscribers / lifetime views / videos) lives on the latest row only; rows are date desc.
+  var snap=null; for(var i=0;i<rows.length;i++){ if(rows[i].subscribers!=null){ snap=rows[i]; break; } }
+  var w=el("div","panel"); w.appendChild(el("h3",null,"YouTube"));
+  w.appendChild(el("div","note","First-party YouTube API (replaces Metricool). Totals are live; daily metrics are from YouTube Analytics (lags ~2-3 days)."+(snap&&snap.channel_title?(" Channel: "+snap.channel_title+"."):"")));
+  if(snap){ var tiles=el("div","mini");
+    tiles.appendChild(mk(fmt(+snap.subscribers||0),"Subscribers"));
+    tiles.appendChild(mk(fmt(+snap.total_views||0),"Lifetime views"));
+    tiles.appendChild(mk(fmt(+snap.video_count||0),"Videos"));
+    w.appendChild(tiles);
+  }
+  w.appendChild(cmpStrip(rows,"date",[
+    {label:"Views",vf:function(r){return +r.views||0;}},
+    {label:"Watch min",vf:function(r){return +r.minutes_watched||0;}},
+    {label:"Subs gained",vf:function(r){return +r.subscribers_gained||0;}},
+    {label:"Subs lost",vf:function(r){return +r.subscribers_lost||0;}},
+    {label:"Likes",vf:function(r){return +r.likes||0;}},
+    {label:"Comments",vf:function(r){return +r.comments||0;}}
+  ]));
+  var sub=rows.filter(function(r){return r.views!=null&&inCur(r.date);}).sort(function(a,b){return (b.date||"").localeCompare(a.date||"");});
+  var s=el("div","scroll"); s.appendChild(table(["Date","Views","Watch min","Subs +","Subs -"],sub,[
+    {f:"date"},{f:"views",n:1,fn:function(v){return fmt(v);}},{f:"minutes_watched",n:1,fn:function(v){return fmt(v);}},
+    {f:"subscribers_gained",n:1},{f:"subscribers_lost",n:1}
+  ])); w.appendChild(s);
+  host.appendChild(w);
+}
 function renderGA4Pages(host){
   var rows=DATA.ga4_pages||[]; if(!rows.length)return;
   periodPanel(host,"Top pages","Most-viewed pages from GA4 (ga4_page_daily).",rows,"date",function(b,sub){
@@ -583,7 +610,7 @@ function renderAll(){
   addSection(p,"Leads & conversion",[renderConversions,renderWeekly,renderLeadsByWeek,renderUTMs,renderTopCampaigns]);
   addSection(p,"Members",[renderActiveMembers,renderInactiveMembers,renderMembershipByType]);
   addSection(p,"Website traffic (GA4)",[renderGA4,renderGA4Pages]);
-  addSection(p,"Social media",[renderSocial,renderReels]);
+  addSection(p,"Social media",[renderSocial,renderYouTube,renderReels]);
   addSection(p,"Messaging & sales (GHL)",[renderMessages,renderEmails,renderAppointments,renderOpportunities]);
   addSection(p,"Events",[renderEvents,renderUpcomingEvents]);
   addSection(p,"Voice agent (Lani)",[renderLani]);
