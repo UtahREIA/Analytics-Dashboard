@@ -1,3 +1,6 @@
+-- SUPERSEDED Nov 17 2026: this table was moved to the SOCIAL-analytics project.
+-- See 20261117010000_drop_youtube_channel_daily_from_main.sql. Kept for history.
+--
 -- First-party YouTube stats pulled daily from the YouTube Data API v3
 -- (channel snapshot: subscribers / lifetime views / video count) and the
 -- YouTube Analytics API (that day's movement: views, watch time, subs gained/lost,
