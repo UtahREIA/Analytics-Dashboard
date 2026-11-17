@@ -1,8 +1,9 @@
 // api/sync-youtube.js
 //
 // Daily Vercel cron that PULLS first-party YouTube stats and upserts one row per
-// (date x channel) into Supabase `youtube_channel_daily`. This replaces the
-// inaccurate Metricool feed for YouTube.
+// (date x channel) into `youtube_channel_daily` in the SOCIAL-analytics Supabase
+// project (alongside the Metricool feeds), NOT the main contacts project. This
+// replaces the inaccurate Metricool feed for YouTube.
 //
 // Two Google APIs, one OAuth client (reuses the GA4 credentials — same project):
 //   1. YouTube Data API v3  -> channel SNAPSHOT: subscribers, lifetime views,
@@ -36,8 +37,16 @@ const YT_REFRESH_TOKEN = process.env.YT_REFRESH_TOKEN;   // minted with the yout
 // needs the authorized account to manage this channel.
 const YT_CHANNEL_ID = process.env.YT_CHANNEL_ID;
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// YouTube stats land in the SOCIAL-analytics Supabase project (alongside the
+// Metricool feeds), NOT the main contacts/matching project. Writes need that
+// project's SERVICE-ROLE key; anon/publishable keys can't write through RLS, so
+// those are deliberately not in the fallback chain (fail loudly instead).
+const SOCIAL_URL = process.env.SOCIAL_SUPABASE_URL || 'https://oeraqcuithvmeyljuzbd.supabase.co';
+const SOCIAL_KEY = process.env.SOCIAL_SUPABASE_SERVICE_ROLE_KEY
+  || process.env.SUPABASE_SOCIAL_SERVICE_ROLE_KEY
+  || process.env.SOCIAL_SERVICE_ROLE_KEY
+  || process.env.SOCIAL_SUPABASE_KEY
+  || '';
 
 // Rolling re-pull window (days). Generous so a skipped run self-heals and late
 // YouTube Analytics data gets corrected.
@@ -144,12 +153,12 @@ async function getDailyAnalytics(accessToken, channelId, days) {
 async function upsert(rows) {
   if (!rows.length) return 0;
   const res = await fetchRetry(
-    `${SUPABASE_URL}/rest/v1/youtube_channel_daily?on_conflict=date,channel_id`,
+    `${SOCIAL_URL}/rest/v1/youtube_channel_daily?on_conflict=date,channel_id`,
     {
       method: 'POST',
       headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: SOCIAL_KEY,
+        Authorization: `Bearer ${SOCIAL_KEY}`,
         'Content-Type': 'application/json',
         Prefer: 'resolution=merge-duplicates,return=minimal',
       },
@@ -167,8 +176,8 @@ export default async function handler(req, res) {
   if (!YT_CLIENT_ID || !YT_CLIENT_SECRET || !YT_REFRESH_TOKEN) {
     return res.status(500).json({ error: 'youtube not configured' });
   }
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return res.status(500).json({ error: 'supabase not configured' });
+  if (!SOCIAL_URL || !SOCIAL_KEY) {
+    return res.status(500).json({ error: 'social supabase not configured (set SOCIAL_SUPABASE_SERVICE_ROLE_KEY)' });
   }
 
   const full = req.query?.full === '1';

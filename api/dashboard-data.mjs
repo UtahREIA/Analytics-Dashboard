@@ -153,7 +153,8 @@ export default async function handler(req, res) {
       view('v_data_health'),
       view('ghl_workflows?select=name,status,updated_at_ghl&order=name.asc'),
       view('v_member_roster?select=full_name,status,membership_type,active_since,expires_on,inactive_since&order=ghl_contact_id.asc&limit=1000'),
-      view('youtube_channel_daily?select=date,channel_title,subscribers,total_views,video_count,views,minutes_watched,subscribers_gained,subscribers_lost,likes,comments,shares&order=date.desc&limit=500'),
+      // YouTube lives in the SOCIAL project (with the other social feeds), so read it via socialView.
+      socialView('youtube_channel_daily?select=date,channel_title,subscribers,total_views,video_count,views,minutes_watched,subscribers_gained,subscribers_lost,likes,comments,shares&order=date.desc&limit=500'),
     ]);
 
     // ga4_page_daily grows daily; page past the 1000-row cap (stable order on date+page_path).
