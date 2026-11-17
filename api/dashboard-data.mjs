@@ -107,6 +107,33 @@ async function socialHealthRow() {
   } catch { return base; }
 }
 
+// YouTube data-freshness row for the health panel. YouTube lives in the social project
+// (no pg_cron heartbeat here), so compute freshness from the newest row. The snapshot is
+// written with today's date on every successful run, so max(date) tracks "did the cron run"
+// regardless of the ~2-3 day Analytics lag. Stale if the newest row is > 2 days old.
+const YT_WINDOW_MIN = 2 * 24 * 60;
+async function youtubeHealthRow() {
+  const base = {
+    feed: 'YouTube (API)', last_run: null, age_min: null, max_age_min: null, status: 'n/a',
+    last_data_at: null, data_age_min: null, data_max_age_min: YT_WINDOW_MIN, data_status: 'unknown', note: null,
+  };
+  if (!SOCIAL_KEY) return base;
+  try {
+    const r = await fetch(`${SOCIAL_URL}/rest/v1/youtube_channel_daily?select=date&order=date.desc&limit=1`,
+      { headers: { apikey: SOCIAL_KEY, Authorization: `Bearer ${SOCIAL_KEY}` } });
+    if (!r.ok) return base;
+    const rows = await r.json();
+    if (!rows.length || !rows[0].date) return base;
+    const latest = rows[0].date;
+    const ageMin = Math.round((Date.now() - new Date(latest + 'T00:00:00Z').getTime()) / 60000);
+    return {
+      ...base, last_data_at: latest, data_age_min: ageMin,
+      data_status: ageMin > YT_WINDOW_MIN ? 'STALE' : 'fresh',
+      note: `latest row ${latest} (analytics itself lags ~2-3d)`,
+    };
+  } catch { return base; }
+}
+
 export default async function handler(req, res) {
   if (!SB || !KEY) {
     return res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set' });
@@ -181,12 +208,13 @@ export default async function handler(req, res) {
       if (more.length < 1000) break;
     }
 
-    const [social, reels, socialHealth] = await Promise.all([
+    const [social, reels, socialHealth, youtubeHealth] = await Promise.all([
       socialView('v_social_channels'),
       socialView('v_reels_summary'),
       socialHealthRow(),
+      youtubeHealthRow(),
     ]);
-    const healthRows = Array.isArray(health) ? health.concat([socialHealth]) : health;
+    const healthRows = Array.isArray(health) ? health.concat([socialHealth, youtubeHealth]) : health;
 
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     res.status(200).json({
