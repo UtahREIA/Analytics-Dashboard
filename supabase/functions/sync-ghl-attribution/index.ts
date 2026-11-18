@@ -2,9 +2,9 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 // sync-ghl-attribution
-// Pulls each GHL contact's lastAttributionSource (lead source) into
-// public.ghl_contact_attribution, via POST /contacts/search (full objects, no
-// per-contact GET). Full re-pull each run, idempotent upsert on ghl_contact_id,
+// Pulls each GHL contact's attribution into public.ghl_contact_attribution, via
+// POST /contacts/search (returns both attributionSource + lastAttributionSource;
+// no per-contact GET). Full re-pull each run, idempotent upsert on ghl_contact_id,
 // so sources correct in place. READ-ONLY against GHL (reuses GHL_API_KEY_CALL_LOGS;
 // needs contacts.readonly on that token).
 //
@@ -12,6 +12,12 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 //
 // 2026-11-09: also pulls utm_campaign (GHL `campaign`), utm_content, utm_term and
 // the paid-ad signals (adId, adName, gclid) into the widened attribution table.
+// 2026-11-18: FIRST TOUCH. The existing columns map lastAttributionSource (LAST
+// touch). GHL keeps first touch in a separate object, attributionSource -- which
+// is what "how they first found us" means. Now map both: first_* <- attributionSource,
+// the generic columns <- lastAttributionSource, plus created_source <- contact.source
+// (the entry label, populated even when attribution is empty: lc-phone-api, SURVEY,
+// CLIENTPORTAL...). Backfills in place on the next run.
 
 const GHL_KEY = Deno.env.get('GHL_API_KEY_CALL_LOGS') ?? '';
 const LOCATION_ID = 'DNirEjy0ejVwbHsaBYrn';
@@ -49,25 +55,45 @@ function hostOf(v: any): string | null {
 }
 
 function mapRow(c: any) {
-  const a = c.lastAttributionSource ?? c.attributionSource ?? {};
+  // last = lastAttributionSource (most recent touch); first = attributionSource
+  // (how they first found us). Either can be an empty {} when GHL captured no
+  // web source (phone / portal / import) -- created_source still labels those.
+  const last = c.lastAttributionSource ?? {};
+  const first = c.attributionSource ?? {};
   const name = c.contactName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.fullNameLowerCase || null;
   return {
     ghl_contact_id: c.id,
     contact_name: name,
     date_added: c.dateAdded ?? null,
-    session_source: a.sessionSource ?? null,
-    medium: a.medium ?? null,
-    utm_source: a.utmSource ?? null,
-    utm_medium: a.utmMedium ?? null,
+    // GHL's own entry label -- present even when both attribution objects are empty.
+    created_source: c.source ?? null,
+    // LAST touch (existing columns, unchanged meaning).
+    session_source: last.sessionSource ?? null,
+    medium: last.medium ?? null,
+    utm_source: last.utmSource ?? null,
+    utm_medium: last.utmMedium ?? null,
     // GHL stores the utm_campaign value in `campaign`; fall back to utmCampaign.
-    utm_campaign: a.campaign ?? a.utmCampaign ?? null,
-    utm_content: a.utmContent ?? null,
-    utm_term: a.utmTerm ?? null,
+    utm_campaign: last.campaign ?? last.utmCampaign ?? null,
+    utm_content: last.utmContent ?? null,
+    utm_term: last.utmTerm ?? null,
     // Paid-ad signals: null until campaign ads run, then populated automatically.
-    ad_id: a.adId ?? null,
-    ad_name: a.adName ?? null,
-    gclid: a.gclid ?? null,
-    referrer: hostOf(a.referrer) ?? hostOf(a.url),
+    ad_id: last.adId ?? null,
+    ad_name: last.adName ?? null,
+    gclid: last.gclid ?? null,
+    referrer: hostOf(last.referrer) ?? hostOf(last.url),
+    // FIRST touch (new columns).
+    first_session_source: first.sessionSource ?? null,
+    first_medium: first.medium ?? null,
+    first_utm_source: first.utmSource ?? null,
+    first_utm_medium: first.utmMedium ?? null,
+    first_utm_campaign: first.campaign ?? first.utmCampaign ?? null,
+    first_utm_content: first.utmContent ?? null,
+    first_utm_term: first.utmTerm ?? null,
+    first_ad_id: first.adId ?? null,
+    first_ad_name: first.adName ?? null,
+    first_gclid: first.gclid ?? null,
+    first_referrer: hostOf(first.referrer),
+    first_url: first.url ?? null,
     last_synced_at: new Date().toISOString(),
   };
 }
@@ -82,14 +108,20 @@ Deno.serve(async (req) => {
   try {
     if (probe) {
       const batch = await searchPage(null);
-      const tally: Record<string, number> = {};
-      for (const c of batch) { const s = (c.lastAttributionSource ?? c.attributionSource ?? {}).sessionSource ?? '(none)'; tally[s] = (tally[s] || 0) + 1; }
+      const firstTally: Record<string, number> = {};
+      const createdTally: Record<string, number> = {};
+      for (const c of batch) {
+        const fs = (c.attributionSource ?? {}).sessionSource ?? '(none)'; firstTally[fs] = (firstTally[fs] || 0) + 1;
+        const cs = c.source ?? '(none)'; createdTally[cs] = (createdTally[cs] || 0) + 1;
+      }
       return Response.json({
         probe: true,
         page_size: batch.length,
-        sessionSource_tally: tally,
+        first_sessionSource_tally: firstTally,
+        created_source_tally: createdTally,
         sample_keys: batch[0] ? Object.keys(batch[0]) : [],
-        sample_attr: batch[0] ? (batch[0].lastAttributionSource ?? batch[0].attributionSource ?? null) : null,
+        sample_first_attr: batch[0] ? (batch[0].attributionSource ?? null) : null,
+        sample_last_attr: batch[0] ? (batch[0].lastAttributionSource ?? null) : null,
         sample_mapped: batch[0] ? mapRow(batch[0]) : null,
       });
     }
