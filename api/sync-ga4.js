@@ -21,8 +21,11 @@ const GA4_CLIENT_ID = process.env.GA4_CLIENT_ID;
 const GA4_CLIENT_SECRET = process.env.GA4_CLIENT_SECRET;
 const GA4_REFRESH_TOKEN = process.env.GA4_REFRESH_TOKEN;
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Destination moved (declutter, Nov 2026): GA4 now lands in the SYSTEM DATA project
+// (byultsmaxrrsaypeoapc), not the Contact Matching System project. Writes need that
+// project's SERVICE-ROLE key; the project URL is public.
+const DEST_URL = process.env.SYSTEMDATA_SUPABASE_URL || 'https://byultsmaxrrsaypeoapc.supabase.co';
+const DEST_KEY = process.env.SYSTEMDATA_SUPABASE_SERVICE_ROLE_KEY || '';
 
 // Rolling re-pull window (days). Generous so a skipped run self-heals and late
 // GA4 data gets corrected.
@@ -156,12 +159,12 @@ function toPageRows(report) {
 async function upsertRows(rows) {
   if (!rows.length) return 0;
   const res = await fetchRetry(
-    `${SUPABASE_URL}/rest/v1/ga4_daily?on_conflict=date,channel`,
+    `${DEST_URL}/rest/v1/ga4_daily?on_conflict=date,channel`,
     {
       method: 'POST',
       headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: DEST_KEY,
+        Authorization: `Bearer ${DEST_KEY}`,
         'Content-Type': 'application/json',
         Prefer: 'resolution=merge-duplicates,return=minimal',
       },
@@ -176,12 +179,12 @@ async function upsertRows(rows) {
 async function upsertPageRows(rows) {
   if (!rows.length) return 0;
   const res = await fetchRetry(
-    `${SUPABASE_URL}/rest/v1/ga4_page_daily?on_conflict=date,page_path`,
+    `${DEST_URL}/rest/v1/ga4_page_daily?on_conflict=date,page_path`,
     {
       method: 'POST',
       headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: DEST_KEY,
+        Authorization: `Bearer ${DEST_KEY}`,
         'Content-Type': 'application/json',
         Prefer: 'resolution=merge-duplicates,return=minimal',
       },
@@ -199,8 +202,8 @@ export default async function handler(req, res) {
   if (!GA4_PROPERTY_ID || !GA4_CLIENT_ID || !GA4_CLIENT_SECRET || !GA4_REFRESH_TOKEN) {
     return res.status(500).json({ error: 'ga4 not configured' });
   }
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return res.status(500).json({ error: 'supabase not configured' });
+  if (!DEST_URL || !DEST_KEY) {
+    return res.status(500).json({ error: 'system data not configured (set SYSTEMDATA_SUPABASE_SERVICE_ROLE_KEY)' });
   }
 
   const full = req.query?.full === '1';
