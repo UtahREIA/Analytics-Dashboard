@@ -11,6 +11,7 @@
     "api/sync-form-submissions.js": { "maxDuration": 60 },
     "api/sync-ga4.js": { "maxDuration": 60 },
     "api/sync-youtube.js": { "maxDuration": 60 },
-    "api/sync-meta.js": { "maxDuration": 60 }
+    "api/sync-meta.js": { "maxDuration": 60 },
+    "api/mcp/[key].mjs": { "maxDuration": 30 }
   }
 }
