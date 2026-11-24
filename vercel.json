@@ -12,6 +12,7 @@
     "api/sync-ga4.js": { "maxDuration": 60 },
     "api/sync-youtube.js": { "maxDuration": 60 },
     "api/sync-meta.js": { "maxDuration": 60 },
+    "api/mcp.mjs": { "maxDuration": 30 },
     "api/mcp/[key].mjs": { "maxDuration": 30 }
   }
 }
