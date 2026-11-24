@@ -75,6 +75,20 @@ async function socialView(path) {
   } catch { return []; }
 }
 
+// GA4 feeds were relocated to the SYSTEM DATA project (declutter, Nov 2026). Same pattern as
+// socialView: public project URL, service-role key from a Vercel env var; non-fatal (empty on
+// missing key) so GA4 panels degrade gracefully instead of breaking the dashboard.
+const SYSTEMDATA_URL = process.env.SYSTEMDATA_SUPABASE_URL || 'https://byultsmaxrrsaypeoapc.supabase.co';
+const SYSTEMDATA_KEY = process.env.SYSTEMDATA_SUPABASE_SERVICE_ROLE_KEY || '';
+async function systemDataView(path) {
+  if (!SYSTEMDATA_KEY) return [];
+  try {
+    const r = await fetch(`${SYSTEMDATA_URL}/rest/v1/${path}`, { headers: { apikey: SYSTEMDATA_KEY, Authorization: `Bearer ${SYSTEMDATA_KEY}` } });
+    if (!r.ok) return [];
+    return r.json();
+  } catch { return []; }
+}
+
 // Social data-freshness row for the health panel. Social is a separate project, so v_data_health
 // can't include it; we compute it here (oldest per-network newest-date; stale if > 3 days) and
 // append it to the health list. Shape matches v_data_health rows; no "sync ran" heartbeat exists
@@ -134,6 +148,32 @@ async function youtubeHealthRow() {
   } catch { return base; }
 }
 
+// GA4 data-freshness row. GA4 now lives in the System Data project (no pg_cron heartbeat here),
+// so freshness is computed from the newest ga4_daily row. GA4 finalizes ~1-2 days late, so stale
+// if the newest row is > 2 days old. Mirrors the YouTube/social app-layer health rows.
+const GA4_WINDOW_MIN = 2 * 24 * 60;
+async function ga4HealthRow() {
+  const base = {
+    feed: 'GA4 traffic + top pages', last_run: null, age_min: null, max_age_min: null, status: 'n/a',
+    last_data_at: null, data_age_min: null, data_max_age_min: GA4_WINDOW_MIN, data_status: 'unknown', note: null,
+  };
+  if (!SYSTEMDATA_KEY) return base;
+  try {
+    const r = await fetch(`${SYSTEMDATA_URL}/rest/v1/ga4_daily?select=date&order=date.desc&limit=1`,
+      { headers: { apikey: SYSTEMDATA_KEY, Authorization: `Bearer ${SYSTEMDATA_KEY}` } });
+    if (!r.ok) return base;
+    const rows = await r.json();
+    if (!rows.length || !rows[0].date) return base;
+    const latest = rows[0].date;
+    const ageMin = Math.round((Date.now() - new Date(latest + 'T00:00:00Z').getTime()) / 60000);
+    return {
+      ...base, last_data_at: latest, data_age_min: ageMin,
+      data_status: ageMin > GA4_WINDOW_MIN ? 'STALE' : 'fresh',
+      note: `newest row ${latest} (GA4 lags ~1-2d); now in System Data project`,
+    };
+  } catch { return base; }
+}
+
 export default async function handler(req, res) {
   if (!SB || !KEY) {
     return res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set' });
@@ -169,9 +209,9 @@ export default async function handler(req, res) {
       view('v_sms_daily?order=date.desc'),
       view('v_appointments_list?order=date.desc.nullslast&limit=500'),
       view('v_opportunities_list?order=date.desc.nullslast&limit=1000'),
-      view('ga4_daily?select=date,channel,sessions,engaged_sessions,new_users&order=date.desc&limit=3000'),
+      systemDataView('ga4_daily?select=date,channel,sessions,engaged_sessions,new_users&order=date.desc&limit=3000'),
       view('v_email_campaign_stats?order=date_scheduled.desc.nullslast&limit=100'),
-      view('ga4_page_daily?select=date,page_path,views,sessions&order=date.desc,page_path.asc&limit=1000'),
+      systemDataView('ga4_page_daily?select=date,page_path,views,sessions&order=date.desc,page_path.asc&limit=1000'),
       view('ghl_vendor_resources?select=company_name,deals_opportunities,contractor_speciality,is_active,approval_status&order=company_name'),
       view('ghl_educators_mentors?select=educators_name,educational_topics,educational_level,is_active&order=educators_name'),
       view('ghl_educational_courses?select=course_name,educational_topics,membership_required,paid_education,is_active&order=course_name'),
@@ -187,7 +227,7 @@ export default async function handler(req, res) {
     // ga4_page_daily grows daily; page past the 1000-row cap (stable order on date+page_path).
     let ga4PagesAll = ga4Pages;
     for (let off = 1000; ga4PagesAll.length === off && off < 20000; off += 1000) {
-      const more = await view(`ga4_page_daily?select=date,page_path,views,sessions&order=date.desc,page_path.asc&limit=1000&offset=${off}`);
+      const more = await systemDataView(`ga4_page_daily?select=date,page_path,views,sessions&order=date.desc,page_path.asc&limit=1000&offset=${off}`);
       ga4PagesAll = ga4PagesAll.concat(more);
       if (more.length < 1000) break;
     }
@@ -208,13 +248,14 @@ export default async function handler(req, res) {
       if (more.length < 1000) break;
     }
 
-    const [social, reels, socialHealth, youtubeHealth] = await Promise.all([
+    const [social, reels, socialHealth, youtubeHealth, ga4Health] = await Promise.all([
       socialView('v_social_channels'),
       socialView('v_reels_summary'),
       socialHealthRow(),
       youtubeHealthRow(),
+      ga4HealthRow(),
     ]);
-    const healthRows = Array.isArray(health) ? health.concat([socialHealth, youtubeHealth]) : health;
+    const healthRows = Array.isArray(health) ? health.concat([socialHealth, youtubeHealth, ga4Health]) : health;
 
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     res.status(200).json({
