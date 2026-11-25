@@ -386,6 +386,30 @@ function renderReels(host){
   w.appendChild(table(["Network","Reels","Total views","Avg views","Engagement"],rows,[{f:"network"},{f:"reels",n:1},{f:"total_views",n:1,fn:function(v){return fmt(v);}},{f:"avg_views",n:1,fn:function(v){return fmt(v);}},{f:"total_engagement",n:1,fn:function(v){return fmt(v);}}]));
   host.appendChild(w);
 }
+function renderTopPosts(host){
+  var rows=DATA.top_posts||[]; if(!rows.length)return;
+  var list=rows.slice().sort(function(a,b){return (+b.engagement_actions||0)-(+a.engagement_actions||0);}).slice(0,15);
+  var w=el("div","panel"); w.appendChild(el("h3",null,"Top posts"));
+  w.appendChild(el("div","note","Best-performing social posts, ranked by total engagement (likes + comments + shares + saves). Reach/impressions shown for context, not used for ranking. Latest snapshot per post, from post_snapshots."));
+  var s=el("div","scroll");
+  s.appendChild(table(["Post","Network","Date","Eng.","Likes","Comments","Shares","Saves","Views","Reach"],list,[
+    {f:"content_preview",fn:function(v,r){
+      var t=(v==null||v==="")?"(no caption)":String(v); if(t.length>70)t=t.slice(0,70)+"…";
+      var esc=t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      return r.post_url?('<a href="'+String(r.post_url).replace(/"/g,"&quot;")+'" target="_blank" rel="noopener">'+esc+'</a>'):esc;
+    }},
+    {f:"network"},
+    {f:"post_date",fn:function(v){return v?String(v).slice(0,10):"-";}},
+    {f:"engagement_actions",n:1,fn:function(v){return fmt(v);}},
+    {f:"likes",n:1,fn:function(v){return fmt(v);}},
+    {f:"comments",n:1,fn:function(v){return fmt(v);}},
+    {f:"shares",n:1,fn:function(v){return fmt(v);}},
+    {f:"saves",n:1,fn:function(v){return fmt(v);}},
+    {f:"video_views",n:1,fn:function(v){return fmt(v);}},
+    {f:"reach_or_impressions",n:1,fn:function(v){return fmt(v);}}
+  ]));
+  w.appendChild(s); host.appendChild(w);
+}
 function renderYouTube(host){
   var rows=DATA.youtube||[]; if(!rows.length)return;
   // Snapshot (subscribers / lifetime views / videos) lives on the latest row only; rows are date desc.
@@ -566,6 +590,7 @@ var PANEL_EXPLAIN = {
   "UTMs & sources": "Leads that arrived carrying UTM parameters. Capture is sparse upstream - most links aren’t tagged - so this undercounts; it grows as campaign links get properly UTM-tagged.",
   "Social channels": "Per-platform totals from the social-analytics (Metricool) project. Followers = latest on file; impressions/interactions/views are summed over what’s collected. For YouTube, “followers” = subscribers.",
   "Reels / short-form video": "Short-form video performance by platform; views and engagement are cumulative per reel. (TikTok is all short-form; some YouTube Shorts aren’t broken out yet.)",
+  "Top posts": "The best-performing individual social posts across all networks and formats, ranked by total engagement (likes + comments + shares + saves) - a measure that’s comparable across platforms, unlike engagement % which rewards tiny-reach posts. Click a post to open it. Reach/impressions and views are context. Data is from the social-analytics (Metricool) pull, which is currently stale, so this reflects posts through early Nov until that pull is reconnected.",
   "Calculator usage": "How many times each calculator was unlocked, and what share of users are active members - a proxy for which tools attract people who convert.",
   "Lani calls": "Calls handled by the Lani AI voice agent and how often she matched the caller to a vendor/tool/educator. Still pre-launch - mostly internal test calls - so treat it as a baseline.",
   "Membership by type": "Active + inactive members grouped by membership type (Individual, Couple, Community…). “(unspecified)” = has a status but no type set.",
@@ -610,7 +635,7 @@ function renderAll(){
   addSection(p,"Leads & conversion",[renderConversions,renderWeekly,renderLeadsByWeek,renderUTMs,renderTopCampaigns]);
   addSection(p,"Members",[renderActiveMembers,renderInactiveMembers,renderMembershipByType]);
   addSection(p,"Website traffic (GA4)",[renderGA4,renderGA4Pages]);
-  addSection(p,"Social media",[renderSocial,renderYouTube,renderReels]);
+  addSection(p,"Social media",[renderSocial,renderYouTube,renderReels,renderTopPosts]);
   addSection(p,"Messaging & sales (GHL)",[renderMessages,renderEmails,renderAppointments,renderOpportunities]);
   addSection(p,"Events",[renderEvents,renderUpcomingEvents]);
   addSection(p,"Voice agent (Lani)",[renderLani]);

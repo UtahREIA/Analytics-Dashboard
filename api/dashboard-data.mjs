@@ -248,9 +248,11 @@ export default async function handler(req, res) {
       if (more.length < 1000) break;
     }
 
-    const [social, reels, socialHealth, youtubeHealth, ga4Health] = await Promise.all([
+    const [social, reels, topPosts, socialHealth, youtubeHealth, ga4Health] = await Promise.all([
       socialView('v_social_channels'),
       socialView('v_reels_summary'),
+      // Top-performing posts across ALL content types, ranked by absolute engagement (v_top_posts).
+      socialView('v_top_posts?select=network,content_type,format_type,post_url,post_date,content_preview,reach_or_impressions,impressions,engagement_pct,likes,comments,shares,saves,video_views,engagement_actions,snapshot_date&order=engagement_actions.desc,video_views.desc&limit=25'),
       socialHealthRow(),
       youtubeHealthRow(),
       ga4HealthRow(),
@@ -262,6 +264,7 @@ export default async function handler(req, res) {
       generated_at: new Date().toISOString(),
       social: social,
       reels: reels,
+      top_posts: topPosts,
       funnel: funnel[0] || {},
       days: days[0] || {},
       lani: lani[0] || {},
